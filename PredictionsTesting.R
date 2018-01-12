@@ -42,9 +42,16 @@ testing.of.single.timeseries <- function(time.series) {
   actual.vals <- test.ts$series
   alpha <- 0.05 # Alpha could be changed to loosen or strenghten the interval scoring
   
-  ann.score <- interval.score(ann.forecast.res, actual.vals, alpha)
-  ets.score <- interval.score(ets.forecast.res, actual.vals, alpha)
-  arima.score <- interval.score(arima.forecast.res, actual.vals, alpha)
+  ann.lb.95 <- ann.forecast.res$lower[,2]
+  ann.ub.95 <- ann.forecast.res$upper[,2]
+  ets.lb.95 <- ets.forecast.res$lower[,2]
+  ets.ub.95 <- ets.forecast.res$upper[,2]
+  arima.lb.95 <- arima.forecast.res$lower[,2]
+  arima.ub.95 <- arima.forecast.res$upper[,2]
+  
+  ann.score <- interval.score(ann.lb.95, ann.ub.95, actual.vals, alpha)
+  ets.score <- interval.score(ets.lb.95, ets.ub.95, actual.vals, alpha)
+  arima.score <- interval.score(arima.lb.95, arima.ub.95, actual.vals, alpha)
   
   res <- data.frame(ets.score = ets.score, arima.score = arima.score, ann.score = ann.score)
   return(res)

@@ -86,6 +86,9 @@ forecast.requests <- function(request.time.series.list, ARIMA.model, n.predicted
 
 # Function to derive the forecasts using the ANN models
 arima.forecast <- function(train.timeseries, pred.steps) {
+  # Preliminary analysis to choose ARIMA parameters
+  
+  
   SARIMA.model = create.SARIMA.model.weekly(train.timeseries, FALSE, c(2,0,0,1,1,1))
   SARIMA.forecast = forecast.requests(train.timeseries, SARIMA.model, pred.steps)
   return(SARIMA.forecast)

@@ -1,3 +1,5 @@
+library(reshape2)
+
 # A function to preprocess a timeseries row in order to introduce NAs instead of negative values
 ts.preprocessing <- function(row) {
   num.row = as.numeric(row)
@@ -43,3 +45,38 @@ plot.ts.list <- function(list.of.ts) {
                    variable=rep(paste0("category", 1:length(list.of.ts)), each=length(list.of.ts[[1]])))
   return(ggplot(data = df, aes(x=x, y=val)) + geom_line(aes(colour=variable)))
 }
+
+# A function to determine different characteristics of the single time series
+compute.characteristics.for.single.ts <- function(time.series) {
+  general.char <- summary(time.series)
+  names(general.char) <- c("min", "1stQu", "median", "mean", "3rdQu", "max")
+  char.df <- as.data.frame(as.array(general.char))
+  names(char.df) <- c("var.name", "val")
+  char.df$id <- rep(1, nrow(char.df))
+  char.df <- dcast(data = char.df, formula = id~var.name, value.var = "val")
+  char.df <- char.df[,names(char.df) != "id"]
+  perc.zeros <- sum(time.series == 0) / length(time.series)
+  char.df$zeros.perc <- perc.zeros
+  ts.spectrum <- spectrum(time.series)
+  period <- (1 / ts.spectrum$freq[which(ts.spectrum$spec == max(ts.spectrum$spec))]) / 3600
+  char.df$period <- period
+  return(char.df)
+}
+
+# A function to compute characteristics of all the available time series
+compute.characteristics <- function(ts.list) {
+  chars.list <- lapply(ts.list, compute.characteristics.for.single.ts)
+  chars.df <- as.data.frame(do.call(rbind, chars.list))
+  return(chars.df)
+}
+
+corellogram.limits <- function(acf.obj) {
+  n <- acf.obj$n.used
+  ret <- list()
+  ret$lb <- - 1 / n - 2 / sqrt(n)
+  ret$ub <- - 1 / n + 2 / sqrt(n)
+  return(ret)
+}
+#hclust
+clusters <- hclust(dist(iris[, 3:4]))
+plot(clusters)
