@@ -15,7 +15,7 @@ testing.of.single.timeseries <- function(time.series) {
   example.ts <- list()
   example.ts$series <- time.series
   example.ts$end <- as.POSIXct("2017-11-06 10:41:23", "%Y-%m-%d %H:%M:%S")
-  start.time <- example.ts$end - ncol(data.raw) * 60 * 60 + 3600
+  start.time <- example.ts$end - length(time.series) * 60 * 60 + 3600
   example.ts$start <- start.time
   example.ts$discretion <- 3600
   

@@ -1,4 +1,5 @@
 library(reshape2)
+require(imputeTS)
 
 # A function to preprocess a timeseries row in order to introduce NAs instead of negative values
 ts.preprocessing <- function(row) {
@@ -68,14 +69,6 @@ compute.characteristics <- function(ts.list) {
   chars.list <- lapply(ts.list, compute.characteristics.for.single.ts)
   chars.df <- as.data.frame(do.call(rbind, chars.list))
   return(chars.df)
-}
-
-corellogram.limits <- function(acf.obj) {
-  n <- acf.obj$n.used
-  ret <- list()
-  ret$lb <- - 1 / n - 2 / sqrt(n)
-  ret$ub <- - 1 / n + 2 / sqrt(n)
-  return(ret)
 }
 #hclust
 clusters <- hclust(dist(iris[, 3:4]))
