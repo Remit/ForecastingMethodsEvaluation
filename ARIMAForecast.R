@@ -94,7 +94,7 @@ corellogram.limits <- function(acf.obj) {
 
 # Function to estimate the MA/AR coefficients for ARIMA model based on ACF analysis
 determine.coefficient <- function(lags, interval.width) {
-  fraction.of.interval.width <- 0.6 # raw estimate
+  fraction.of.interval.width <- 0.55 # raw estimate
   important.lags <- abs(lags) > (fraction.of.interval.width * interval.width)
   important.lags.shifted <- c(important.lags[1], important.lags[-length(important.lags)])
   difference.in.important.lags <- abs(important.lags.shifted - important.lags)
@@ -109,7 +109,7 @@ determine.coefficient <- function(lags, interval.width) {
 }
 
 # Function to derive the GARCH model
-create.GARCH.model.weekly <- function(train.timeseries, arima.residuals, coefs) {
+create.GARCH.model.weekly <- function(train.timeseries, arima.residuals, coefs, pred.steps) {
   marked.days <- mark.time(train.timeseries$start,
                            train.timeseries$end,
                            train.timeseries$discretion)
@@ -119,13 +119,37 @@ create.GARCH.model.weekly <- function(train.timeseries, arima.residuals, coefs) 
                      distribution.model = "norm", start.pars = list(), fixed.pars = list())
   garch <- ugarchfit(spec = spec,
                      data = arima.residuals,
+                     out.sample = pred.steps,
                      solver.control=list(trace=0))
 }
 
 # Function to derive the forecasts using the ANN models
-arima.forecast <- function(train.timeseries, pred.steps) {
+arima.forecast <- function(example.ts, pred.steps, model.type) {
+  # Supported time series models:
+  # - SARIMA - single SARIMA model
+  # - SARIMA+GARCH - SARIMA for forecasting the mean and GARCH for forecasting the variance
+  # - SARFIMA - single seasonal ARFIMA model
+  # - SARFIMA+GARCH - seasonal ARFIMA for forecasting the mean and GARCH for forecasting the variance
+  
+  resulting.model <- NULL
+  
   # Preliminary analysis to choose ARIMA parameters
   # I. Getting rid of the seasonality
+  test.set.length.days <- 7
+  train.timeseries <- list()
+  train.timeseries$series <- window(example.ts$series, as.numeric(example.ts$start), as.numeric(example.ts$end - test.set.length.days * 24 * 3600))
+  train.timeseries$start <- example.ts$start
+  train.timeseries$end <- example.ts$end - test.set.length.days * 24 * 3600
+  train.timeseries$discretion <- example.ts$discretion
+  
+  
+  
+  test.ts <- list()
+  test.ts$series <- window(example.ts$series, as.numeric(example.ts$end - test.set.length.days * 24 * 3600 + 1), as.numeric(example.ts$end))
+  test.ts$start <- example.ts$end - test.set.length.days * 24 * 3600 + 1
+  test.ts$end <- example.ts$end
+  test.ts$discretion <- example.ts$discretion
+  
   time.series <- train.timeseries$series
   # s
   s <- compute.ts.highest.period(time.series)
@@ -135,6 +159,44 @@ arima.forecast <- function(train.timeseries, pred.steps) {
   }
   
   unseasoned.ts <- diff(time.series, s)
+  
+  
+  
+  
+  
+  marked.days <- mark.time(train.timeseries$start,
+                           train.timeseries$end,
+                           train.timeseries$discretion)
+  ARFIMA <- arfima::arfima(train.timeseries$series,
+                   order = c(p, 0 , q),
+                   seasonal = list(order = c(P, 0, Q),
+                                   period = s),
+                   xreg = as.matrix(marked.days))
+  res.ARFIMA <- residuals(ARFIMA)
+  pacf(res.ARFIMA$Mode1)
+  
+  start = train.timeseries$end
+  discretion = train.timeseries$discretion
+  duration = pred.steps * discretion
+  marked.ts.for.prediction = mark.time(start + discretion, start + duration, discretion)
+  
+  pred.ARFIMA <- predict(ARFIMA, pred.steps, newxreg = as.matrix(marked.ts.for.prediction))
+  sd.ARFIMA <- pred.ARFIMA[[1]]$exactSD
+  mean.ARFIMA <- pred.ARFIMA[[1]]$Forecast
+  lower.95 <- mean.ARFIMA - sd.ARFIMA
+  upper.95 <- mean.ARFIMA + sd.ARFIMA
+  resulting.model <- list(mean = mean.ARFIMA,
+                          lower = lower.95,
+                          upper = upper.95)
+  
+  
+  
+  
+  
+  
+  
+  
+  
   
   # II. Checking for trend-stationarity with KPSS test
   border.kpss.p.val <- 0.05
@@ -153,7 +215,8 @@ arima.forecast <- function(train.timeseries, pred.steps) {
   # FracDiFF?
   
   # III. Estimating the trend
-  ts.trend <- lm(trend.stationary.ts ~ time(trend.stationary.ts))
+  trended.data <- data.frame(time = time(trend.stationary.ts), value = trend.stationary.ts)
+  ts.trend <- lm(value ~ time, data = trended.data)
   detrend.stationary <- trend.stationary.ts - ts.trend$fitted.values
   
   # IV. Estimating the MA component coefficients for ARIMA
@@ -194,80 +257,141 @@ arima.forecast <- function(train.timeseries, pred.steps) {
   D <- sum(acf.seasonality.lags.selected > acf.interval.width)
   
   # VII. Deriving ARIMA model based on the derived parameters
-  SARIMA.model = create.SARIMA.model.weekly(train.timeseries, FALSE, c(p,d,q,s,P,D,Q))
-  # TODO: testing for lags that were not captured
+  ARIMA.model <- NULL
+  
+  if(length(grep("SARIMA", model.type)) > 0) {
+    ARIMA.model <- create.SARIMA.model.weekly(train.timeseries, FALSE, c(p,d,q,s,P,D,Q))
+  } else if(length(grep("SARFIMA", model.type)) > 0) {
+    marked.days <- mark.time(train.timeseries$start,
+                             train.timeseries$end,
+                             train.timeseries$discretion)
+    ARIMA.model <- arfima::arfima(train.timeseries$series,
+                             order = c(p, 0 , q),
+                             seasonal = list(order = c(P, 0, Q),
+                                             period = s),
+                             xreg = as.matrix(marked.days))
+  }
+  
+  # VIII. Forecasting using ARIMA model and adjusting it using the forecast
+  # Forecasting using basic ARIMA model
+  ARIMA.forecast <- NULL
+  if(length(grep("SARIMA", model.type)) > 0) {
+    ARIMA.forecast <- forecast.requests(train.timeseries, ARIMA.model, pred.steps)
+  } else if(length(grep("SARFIMA", model.type)) > 0) {
+    start = train.timeseries$end
+    discretion = train.timeseries$discretion
+    duration = pred.steps * discretion
+    marked.ts.for.prediction = mark.time(start + discretion, start + duration, discretion)
+    
+    pred.ARFIMA <- predict(ARFIMA, pred.steps, newxreg = as.matrix(marked.ts.for.prediction))
+    sd.ARFIMA <- pred.ARFIMA[[1]]$exactSD
+    mean.ARFIMA <- pred.ARFIMA[[1]]$Forecast
+    lower.95 <- mean.ARFIMA - sd.ARFIMA
+    upper.95 <- mean.ARFIMA + sd.ARFIMA
+    ARIMA.forecast <- list(mean = mean.ARFIMA,
+                           lower = lower.95,
+                           upper = upper.95)
+  }
+  resulting.model <- ARIMA.forecast
+  
+  # Adjusting by trend
+  if(length(grep("SARIMA", model.type)) > 0) {
+    trend.predictions <- predict(ts.trend, data.frame(time = seq(start(resulting.model$mean), end(resulting.model$mean), 3600)))
+    SARIMA.forecast.adjusted.by.trend <- resulting.model
+    SARIMA.forecast.adjusted.by.trend$mean <- SARIMA.forecast.adjusted.by.GARCH$mean + ts(trend.predictions,
+                                                                                          start = start(resulting.model$mean),
+                                                                                          end = end(resulting.model$mean),
+                                                                                          frequency = frequency(resulting.model$mean))
+    resulting.model <- SARIMA.forecast.adjusted.by.trend
+  }
+  
+   # TODO: testing for lags that were not captured
   
   # normality - shapiro.test(trend.stationary.ts) --- low p-val - non-normal
   
-  # VIII. Fitting GARCH models to the variance if necessary
-  squared.residuals <- SARIMA.model$residuals ^ 2
-  squared.residuals.acf <- acf(squared.residuals)
-  squared.residuals.acf.lags <- squared.residuals.acf$acf
-  squared.residuals.limits.acf <- corellogram.limits(squared.residuals.acf)
-  garch.acf.interval.width <- squared.residuals.limits.acf$ub - squared.residuals.limits.acf$lb
-  q.garch <- determine.coefficient(squared.residuals.acf.lags, garch.acf.interval.width)
-  
-  sGARCH.model <- NULL
-  if(q.garch > 0) { # Variance could be described by some model
-    squared.residuals.pacf <- pacf(squared.residuals)
-    squared.residuals.pacf.lags <- squared.residuals.pacf$acf
-    squared.residuals.limits.pacf <- corellogram.limits(squared.residuals.pacf)
-    garch.pacf.interval.width <- squared.residuals.limits.pacf$ub - squared.residuals.limits.pacf$lb
-    p.garch <- determine.coefficient(squared.residuals.pacf.lags, garch.pacf.interval.width)
-    if(p.garch == 0) {
-      p.garch <- 1 # Otherwise the model won't work
+  if( length(grep("GARCH", model.type)) > 0 ) { #GARCH model included
+    # IX. Fitting GARCH models to the variance if necessary
+    squared.residuals <- SARIMA.model$residuals ^ 2
+    squared.residuals.acf <- acf(squared.residuals)
+    squared.residuals.acf.lags <- squared.residuals.acf$acf
+    squared.residuals.limits.acf <- corellogram.limits(squared.residuals.acf)
+    garch.acf.interval.width <- squared.residuals.limits.acf$ub - squared.residuals.limits.acf$lb
+    q.garch <- determine.coefficient(squared.residuals.acf.lags, garch.acf.interval.width)
+    
+    sGARCH.model <- NULL
+    if(q.garch > 0) { # Variance could be described by some model
+      squared.residuals.pacf <- pacf(squared.residuals)
+      squared.residuals.pacf.lags <- squared.residuals.pacf$acf
+      squared.residuals.limits.pacf <- corellogram.limits(squared.residuals.pacf)
+      garch.pacf.interval.width <- squared.residuals.limits.pacf$ub - squared.residuals.limits.pacf$lb
+      p.garch <- determine.coefficient(squared.residuals.pacf.lags, garch.pacf.interval.width)
+      if(p.garch == 0) {
+        p.garch <- 1 # Otherwise the model won't work
+      }
+      
+      sGARCH.model <- create.GARCH.model.weekly(example.ts, SARIMA.model$residuals, c(p.garch, q.garch), pred.steps)
+      
+      # Checking GARCH model whether it captures all the information about variance
+      check.garch.acf <- acf(sGARCH.model@fit$residuals / sGARCH.model@fit$sigma)
+      check.garch.acf.lags <- check.garch.acf$acf
+      check.garch.limits.acf <- corellogram.limits(check.garch.acf)
+      check.garch.acf.interval.width <- check.garch.limits.acf$ub - check.garch.limits.acf$lb
+      fraction.of.interval.width <- 0.6 # raw estimate
+      important.lags <- abs(check.garch.acf.lags) > (fraction.of.interval.width * check.garch.acf.interval.width)
+      fraction.of.important.lags <- sum(important.lags) / length(important.lags)
+      if(fraction.of.important.lags > 0.05) {
+        print("We need to adjust GARCH model because some information was not captured by it. Source: ACF of standardized residuals.")
+      }
+      
+      check.garch.pacf <- pacf(sGARCH.model@fit$residuals / sGARCH.model@fit$sigma)
+      check.garch.pacf.lags <- check.garch.pacf$acf
+      check.garch.limits.pacf <- corellogram.limits(check.garch.pacf)
+      check.garch.pacf.interval.width <- check.garch.limits.pacf$ub - check.garch.limits.pacf$lb
+      fraction.of.interval.width <- 0.6 # raw estimate
+      important.lags <- abs(check.garch.pacf.lags) > (fraction.of.interval.width * check.garch.pacf.interval.width)
+      fraction.of.important.lags <- sum(important.lags) / length(important.lags)
+      if(fraction.of.important.lags > 0.05) {
+        print("We need to adjust GARCH model because some information was not captured by it. Source: PACF of standardized residuals.")
+      }
     }
     
-    sGARCH.model <- create.GARCH.model.weekly(train.timeseries, SARIMA.model$residuals, c(p.garch, q.garch))
+    # X. Using ARIMA/GARCH combination for forecasts of mean/variance plus trend forecast
+    # External regressors - marked weekends
+    start = train.timeseries$end
+    discretion = train.timeseries$discretion
+    duration = pred.steps * discretion
+    marked.ts.for.prediction = mark.time(start + discretion, start + duration, discretion)
     
-    # Checking GARCH model whether it captures all the information about variance
-    check.garch.acf <- acf(sGARCH.model@fit$residuals / sGARCH.model@fit$sigma)
-    check.garch.acf.lags <- check.garch.acf$acf
-    check.garch.limits.acf <- corellogram.limits(check.garch.acf)
-    check.garch.acf.interval.width <- check.garch.limits.acf$ub - check.garch.limits.acf$lb
-    fraction.of.interval.width <- 0.6 # raw estimate
-    important.lags <- abs(check.garch.acf.lags) > (fraction.of.interval.width * check.garch.acf.interval.width)
-    fraction.of.important.lags <- sum(important.lags) / length(important.lags)
-    if(fraction.of.important.lags > 0.05) {
-      print("We need to adjust GARCH model because some information was not captured by it. Source: ACF of standardized residuals.")
-    }
+    garch.forecast <- ugarchforecast(sGARCH.model,
+                   n.ahead = 1,
+                   n.roll = pred.steps - 1,
+                   out.sample = pred.steps,
+                   external.forecasts = list(mregfor = as.matrix(marked.ts.for.prediction), vregfor = as.matrix(marked.ts.for.prediction)))
     
-    check.garch.pacf <- pacf(sGARCH.model@fit$residuals / sGARCH.model@fit$sigma)
-    check.garch.pacf.lags <- check.garch.pacf$acf
-    check.garch.limits.pacf <- corellogram.limits(check.garch.pacf)
-    check.garch.pacf.interval.width <- check.garch.limits.pacf$ub - check.garch.limits.pacf$lb
-    fraction.of.interval.width <- 0.6 # raw estimate
-    important.lags <- abs(check.garch.pacf.lags) > (fraction.of.interval.width * check.garch.pacf.interval.width)
-    fraction.of.important.lags <- sum(important.lags) / length(important.lags)
-    if(fraction.of.important.lags > 0.05) {
-      print("We need to adjust GARCH model because some information was not captured by it. Source: PACF of standardized residuals.")
-    }
+    # Adjusting by GARCH forecast of mean/variance for residuals
+    SARIMA.forecast.adjusted.by.GARCH <- SARIMA.forecast.adjusted.by.trend
+    SARIMA.forecast.adjusted.by.GARCH$mean <- SARIMA.forecast.adjusted.by.GARCH$mean + ts(as.vector(garch.forecast@forecast$seriesFor),
+                                                                                          start = start(SARIMA.forecast.adjusted.by.GARCH$mean),
+                                                                                          end = end(SARIMA.forecast.adjusted.by.GARCH$mean),
+                                                                                          frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$mean))
+    SARIMA.forecast.adjusted.by.GARCH$lower[,1] <- SARIMA.forecast.adjusted.by.GARCH$lower[,1] - ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(SARIMA.forecast.adjusted.by.GARCH$lower[,1]),
+                                                                                                    end = end(SARIMA.forecast.adjusted.by.GARCH$lower[,1]),
+                                                                                                    frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$lower[,1]))
+    SARIMA.forecast.adjusted.by.GARCH$lower[,2] <- SARIMA.forecast.adjusted.by.GARCH$lower[,2] - ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(SARIMA.forecast.adjusted.by.GARCH$lower[,2]),
+                                                                                                    end = end(SARIMA.forecast.adjusted.by.GARCH$lower[,2]),
+                                                                                                    frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$lower[,2]))
+    SARIMA.forecast.adjusted.by.GARCH$upper[,1] <- SARIMA.forecast.adjusted.by.GARCH$upper[,1] + ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(SARIMA.forecast.adjusted.by.GARCH$upper[,1]),
+                                                                                                    end = end(SARIMA.forecast.adjusted.by.GARCH$upper[,1]),
+                                                                                                    frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$upper[,1]))
+    SARIMA.forecast.adjusted.by.GARCH$upper[,2] <- SARIMA.forecast.adjusted.by.GARCH$upper[,2] + ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(SARIMA.forecast.adjusted.by.GARCH$upper[,2]),
+                                                                                                    end = end(SARIMA.forecast.adjusted.by.GARCH$upper[,2]),
+                                                                                                    frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$upper[,2]))
+    resulting.model <- SARIMA.forecast.adjusted.by.GARCH
   }
   
-  # TODO: IX. Using ARIMA/GARCH combination for forecasts of mean/variance plus trend forecast
-  
-    
-    
-    
-
-  
-  # Next, plot the residuals (ordinary or raw) and standardized residuals in various
-  # ways using the code below. The standardized residuals are best for checking
-  # the model, but the residuals are useful to see if there are GARCH effects in
-  # the series.
-  # res = residuals(garch.model.Tbill)
-  # res_std = res / garch.model.Tbill@sigma.t
-  #par(mfrow=c(2,3))
-  #plot(res)
-  #acf(res)
-  #acf(res^2)
-  #plot(res_std)
-  #acf(res_std)
-  #acf(res_std^2)
-  #https://faculty.washington.edu/ezivot/econ589/ch18-garch.pdf
-
-  
-  # plus trend forecast
-  SARIMA.forecast = forecast.requests(train.timeseries, SARIMA.model, pred.steps)
-  return(SARIMA.forecast)
+  return(resulting.model)
 }

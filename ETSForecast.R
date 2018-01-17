@@ -4,5 +4,5 @@ require(forecast)
 ets.forecast <- function(train.timeseries, pred.steps) {
   ets.model = ets(train.timeseries)
   ets.forecast = forecast(ets.model, pred.steps)
-  return(nn.forecast)
+  return(ets.forecast)
 }

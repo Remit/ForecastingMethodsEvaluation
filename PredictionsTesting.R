@@ -36,7 +36,9 @@ testing.of.single.timeseries <- function(time.series) {
   # Deriving different forecasting models and forecasts with prediction intervals
   ann.forecast.res = ann.forecast(train.ts, length(test.ts$series))
   ets.forecast.res = ets.forecast(train.ts$series, length(test.ts$series))
-  arima.forecast.res = arima.forecast(train.ts, length(test.ts$series))
+  sarima.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARIMA")
+  sarima.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARIMA+GARCH")
+  sarfima.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARFIMA")
 
   # Scoring of forecasting models
   actual.vals <- test.ts$series
@@ -46,14 +48,24 @@ testing.of.single.timeseries <- function(time.series) {
   ann.ub.95 <- ann.forecast.res$upper[,2]
   ets.lb.95 <- ets.forecast.res$lower[,2]
   ets.ub.95 <- ets.forecast.res$upper[,2]
-  arima.lb.95 <- arima.forecast.res$lower[,2]
-  arima.ub.95 <- arima.forecast.res$upper[,2]
+  sarima.lb.95 <- sarima.forecast.res$lower[,2]
+  sarima.ub.95 <- sarima.forecast.res$upper[,2]
+  sarima.garch.lb.95 <- sarima.garch.forecast.res$lower[,2]
+  sarima.garch.ub.95 <- sarima.garch.forecast.res$upper[,2]
+  sarfima.lb.95 <- sarfima.forecast.res$lower
+  sarfima.ub.95 <- sarfima.forecast.res$upper
   
   ann.score <- interval.score(ann.lb.95, ann.ub.95, actual.vals, alpha)
   ets.score <- interval.score(ets.lb.95, ets.ub.95, actual.vals, alpha)
-  arima.score <- interval.score(arima.lb.95, arima.ub.95, actual.vals, alpha)
+  sarima.score <- interval.score(sarima.lb.95, sarima.ub.95, actual.vals, alpha)
+  sarima.garch.score <- interval.score(sarima.garch.lb.95, sarima.garch.ub.95, actual.vals, alpha)
+  sarfima.score <- interval.score(sarfima.lb.95, sarfima.ub.95, actual.vals, alpha)
   
-  res <- data.frame(ets.score = ets.score, arima.score = arima.score, ann.score = ann.score)
+  res <- data.frame(ets.score = ets.score,
+                    sarima.score = sarima.score,
+                    sarima.garch.score = sarima.garch.score,
+                    sarfima.score = sarfima.score,
+                    ann.score = ann.score)
   return(res)
 }
 
@@ -70,4 +82,4 @@ overall.testing <- function(list.of.data) {
 file.path <- "/home/remit/dissCloud/Instana/data/metrics.csv"
 data.raw <- read.csv2(file = file.path, header = F, sep = ",", stringsAsFactors = F)
 lst <- ts.preprocessing.matrix.Instana(data.raw)
-score.table <- overall.testing(lst[1])
+score.table <- overall.testing(lst[8])
