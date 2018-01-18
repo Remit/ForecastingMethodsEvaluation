@@ -160,44 +160,6 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   
   unseasoned.ts <- diff(time.series, s)
   
-  
-  
-  
-  
-  marked.days <- mark.time(train.timeseries$start,
-                           train.timeseries$end,
-                           train.timeseries$discretion)
-  ARFIMA <- arfima::arfima(train.timeseries$series,
-                   order = c(p, 0 , q),
-                   seasonal = list(order = c(P, 0, Q),
-                                   period = s),
-                   xreg = as.matrix(marked.days))
-  res.ARFIMA <- residuals(ARFIMA)
-  pacf(res.ARFIMA$Mode1)
-  
-  start = train.timeseries$end
-  discretion = train.timeseries$discretion
-  duration = pred.steps * discretion
-  marked.ts.for.prediction = mark.time(start + discretion, start + duration, discretion)
-  
-  pred.ARFIMA <- predict(ARFIMA, pred.steps, newxreg = as.matrix(marked.ts.for.prediction))
-  sd.ARFIMA <- pred.ARFIMA[[1]]$exactSD
-  mean.ARFIMA <- pred.ARFIMA[[1]]$Forecast
-  lower.95 <- mean.ARFIMA - sd.ARFIMA
-  upper.95 <- mean.ARFIMA + sd.ARFIMA
-  resulting.model <- list(mean = mean.ARFIMA,
-                          lower = lower.95,
-                          upper = upper.95)
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
   # II. Checking for trend-stationarity with KPSS test
   border.kpss.p.val <- 0.05
   trend.stationary.ts <- unseasoned.ts
@@ -211,8 +173,6 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
     d <- d + 1
     kpss.stat <- kpss.test(trend.stationary.ts, null = "Trend")
   }
-  
-  # FracDiFF?
   
   # III. Estimating the trend
   trended.data <- data.frame(time = time(trend.stationary.ts), value = trend.stationary.ts)
@@ -275,6 +235,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   # VIII. Forecasting using ARIMA model and adjusting it using the forecast
   # Forecasting using basic ARIMA model
   ARIMA.forecast <- NULL
+  
   if(length(grep("SARIMA", model.type)) > 0) {
     ARIMA.forecast <- forecast.requests(train.timeseries, ARIMA.model, pred.steps)
   } else if(length(grep("SARFIMA", model.type)) > 0) {
@@ -283,7 +244,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
     duration = pred.steps * discretion
     marked.ts.for.prediction = mark.time(start + discretion, start + duration, discretion)
     
-    pred.ARFIMA <- predict(ARFIMA, pred.steps, newxreg = as.matrix(marked.ts.for.prediction))
+    pred.ARFIMA <- predict(ARIMA.model, pred.steps, newxreg = as.matrix(marked.ts.for.prediction))
     sd.ARFIMA <- pred.ARFIMA[[1]]$exactSD
     mean.ARFIMA <- pred.ARFIMA[[1]]$Forecast
     lower.95 <- mean.ARFIMA - sd.ARFIMA
@@ -292,6 +253,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
                            lower = lower.95,
                            upper = upper.95)
   }
+  
   resulting.model <- ARIMA.forecast
   
   # Adjusting by trend
@@ -311,7 +273,13 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   
   if( length(grep("GARCH", model.type)) > 0 ) { #GARCH model included
     # IX. Fitting GARCH models to the variance if necessary
-    squared.residuals <- SARIMA.model$residuals ^ 2
+    residuals.ARIMA <- residuals(ARIMA.model)
+    if(class(residuals.ARIMA) == "list") {
+      residuals.ARIMA <- residuals.ARIMA[[1]]
+      names(residuals.ARIMA) <- c()
+    }
+    squared.residuals <- residuals.ARIMA ^ 2
+    
     squared.residuals.acf <- acf(squared.residuals)
     squared.residuals.acf.lags <- squared.residuals.acf$acf
     squared.residuals.limits.acf <- corellogram.limits(squared.residuals.acf)
@@ -329,7 +297,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
         p.garch <- 1 # Otherwise the model won't work
       }
       
-      sGARCH.model <- create.GARCH.model.weekly(example.ts, SARIMA.model$residuals, c(p.garch, q.garch), pred.steps)
+      sGARCH.model <- create.GARCH.model.weekly(example.ts, residuals.ARIMA, c(p.garch, q.garch), pred.steps)
       
       # Checking GARCH model whether it captures all the information about variance
       check.garch.acf <- acf(sGARCH.model@fit$residuals / sGARCH.model@fit$sigma)
@@ -369,28 +337,41 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
                    external.forecasts = list(mregfor = as.matrix(marked.ts.for.prediction), vregfor = as.matrix(marked.ts.for.prediction)))
     
     # Adjusting by GARCH forecast of mean/variance for residuals
-    SARIMA.forecast.adjusted.by.GARCH <- SARIMA.forecast.adjusted.by.trend
-    SARIMA.forecast.adjusted.by.GARCH$mean <- SARIMA.forecast.adjusted.by.GARCH$mean + ts(as.vector(garch.forecast@forecast$seriesFor),
-                                                                                          start = start(SARIMA.forecast.adjusted.by.GARCH$mean),
-                                                                                          end = end(SARIMA.forecast.adjusted.by.GARCH$mean),
-                                                                                          frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$mean))
-    SARIMA.forecast.adjusted.by.GARCH$lower[,1] <- SARIMA.forecast.adjusted.by.GARCH$lower[,1] - ts(as.vector(garch.forecast@forecast$sigmaFor),
-                                                                                                    start = start(SARIMA.forecast.adjusted.by.GARCH$lower[,1]),
-                                                                                                    end = end(SARIMA.forecast.adjusted.by.GARCH$lower[,1]),
-                                                                                                    frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$lower[,1]))
-    SARIMA.forecast.adjusted.by.GARCH$lower[,2] <- SARIMA.forecast.adjusted.by.GARCH$lower[,2] - ts(as.vector(garch.forecast@forecast$sigmaFor),
-                                                                                                    start = start(SARIMA.forecast.adjusted.by.GARCH$lower[,2]),
-                                                                                                    end = end(SARIMA.forecast.adjusted.by.GARCH$lower[,2]),
-                                                                                                    frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$lower[,2]))
-    SARIMA.forecast.adjusted.by.GARCH$upper[,1] <- SARIMA.forecast.adjusted.by.GARCH$upper[,1] + ts(as.vector(garch.forecast@forecast$sigmaFor),
-                                                                                                    start = start(SARIMA.forecast.adjusted.by.GARCH$upper[,1]),
-                                                                                                    end = end(SARIMA.forecast.adjusted.by.GARCH$upper[,1]),
-                                                                                                    frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$upper[,1]))
-    SARIMA.forecast.adjusted.by.GARCH$upper[,2] <- SARIMA.forecast.adjusted.by.GARCH$upper[,2] + ts(as.vector(garch.forecast@forecast$sigmaFor),
-                                                                                                    start = start(SARIMA.forecast.adjusted.by.GARCH$upper[,2]),
-                                                                                                    end = end(SARIMA.forecast.adjusted.by.GARCH$upper[,2]),
-                                                                                                    frequency = frequency(SARIMA.forecast.adjusted.by.GARCH$upper[,2]))
-    resulting.model <- SARIMA.forecast.adjusted.by.GARCH
+    ARIMA.forecast.adjusted.by.GARCH <- resulting.model
+    ARIMA.forecast.adjusted.by.GARCH$mean <- ARIMA.forecast.adjusted.by.GARCH$mean + ts(as.vector(garch.forecast@forecast$seriesFor),
+                                                                                        start = start(ARIMA.forecast.adjusted.by.GARCH$mean),
+                                                                                        end = end(ARIMA.forecast.adjusted.by.GARCH$mean),
+                                                                                        frequency = frequency(ARIMA.forecast.adjusted.by.GARCH$mean))
+   
+    if(length(grep("SARIMA", model.type)) > 0) {
+      ARIMA.forecast.adjusted.by.GARCH$lower[,1] <- ARIMA.forecast.adjusted.by.GARCH$lower[,1] - ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(ARIMA.forecast.adjusted.by.GARCH$lower[,1]),
+                                                                                                    end = end(ARIMA.forecast.adjusted.by.GARCH$lower[,1]),
+                                                                                                    frequency = frequency(ARIMA.forecast.adjusted.by.GARCH$lower[,1]))
+      ARIMA.forecast.adjusted.by.GARCH$lower[,2] <- ARIMA.forecast.adjusted.by.GARCH$lower[,2] - ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(ARIMA.forecast.adjusted.by.GARCH$lower[,2]),
+                                                                                                    end = end(ARIMA.forecast.adjusted.by.GARCH$lower[,2]),
+                                                                                                    frequency = frequency(ARIMA.forecast.adjusted.by.GARCH$lower[,2]))
+      ARIMA.forecast.adjusted.by.GARCH$upper[,1] <- ARIMA.forecast.adjusted.by.GARCH$upper[,1] + ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(ARIMA.forecast.adjusted.by.GARCH$upper[,1]),
+                                                                                                    end = end(ARIMA.forecast.adjusted.by.GARCH$upper[,1]),
+                                                                                                    frequency = frequency(ARIMA.forecast.adjusted.by.GARCH$upper[,1]))
+      ARIMA.forecast.adjusted.by.GARCH$upper[,2] <- ARIMA.forecast.adjusted.by.GARCH$upper[,2] + ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(ARIMA.forecast.adjusted.by.GARCH$upper[,2]),
+                                                                                                    end = end(ARIMA.forecast.adjusted.by.GARCH$upper[,2]),
+                                                                                                    frequency = frequency(ARIMA.forecast.adjusted.by.GARCH$upper[,2]))
+    } else if(length(grep("SARFIMA", model.type)) > 0) {
+      ARIMA.forecast.adjusted.by.GARCH$lower <- ARIMA.forecast.adjusted.by.GARCH$lower - ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(ARIMA.forecast.adjusted.by.GARCH$lower),
+                                                                                                    end = end(ARIMA.forecast.adjusted.by.GARCH$lower),
+                                                                                                    frequency = frequency(ARIMA.forecast.adjusted.by.GARCH$lower))
+      ARIMA.forecast.adjusted.by.GARCH$upper <- ARIMA.forecast.adjusted.by.GARCH$upper + ts(as.vector(garch.forecast@forecast$sigmaFor),
+                                                                                                    start = start(ARIMA.forecast.adjusted.by.GARCH$upper),
+                                                                                                    end = end(ARIMA.forecast.adjusted.by.GARCH$upper),
+                                                                                                    frequency = frequency(ARIMA.forecast.adjusted.by.GARCH$upper))
+    }
+    
+    resulting.model <- ARIMA.forecast.adjusted.by.GARCH
   }
   
   return(resulting.model)
