@@ -166,18 +166,74 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   kpss.stat <- kpss.test(trend.stationary.ts, null = "Trend")
   # d
   d <- 0
-  d.limit <- 12 # stop-condition on d value
-  
-  while((kpss.stat$p.value <= border.kpss.p.val) & (d <= d.limit)) { #non-stationarity in trend, needs more differencing
-    trend.stationary.ts <- diff(trend.stationary.ts)
-    d <- d + 1
-    kpss.stat <- kpss.test(trend.stationary.ts, null = "Trend")
+  if(length(grep("SARIMA", model.type)) > 0) {
+    d.limit <- 12 # stop-condition on d value
+    
+    while((kpss.stat$p.value <= border.kpss.p.val) & (d <= d.limit)) { #non-stationarity in trend, needs more differencing
+      trend.stationary.ts <- diff(trend.stationary.ts)
+      d <- d + 1
+      kpss.stat <- kpss.test(trend.stationary.ts, null = "Trend")
+    }
+    
+    # Trying to evaluate the value of d based on try-evaluate approach.
+    # Stopping evaluation when the differencing leads to more autocorellations to be outside of the acceptable interval.
+    previous.d <- d
+    d <- d + 1 # Information contained in d could also be captured using other model parameters, e.g. q
+    trend.stationary.ts.pacf <- pacf(trend.stationary.ts)
+    trend.stationary.ts.pacf.lags <- trend.stationary.ts.pacf$acf
+    
+    fraction.of.interval.width <- 0.5 # raw estimate
+    
+    trend.stationary.ts.limits.pacf <- corellogram.limits(trend.stationary.ts.pacf)
+    trend.stationary.ts.pacf.interval.width <- trend.stationary.ts.limits.pacf$ub - trend.stationary.ts.limits.pacf$lb
+    important.lags <- abs(trend.stationary.ts.pacf.lags) > (fraction.of.interval.width * trend.stationary.ts.pacf.interval.width)
+    fraction.of.important.lags <- sum(important.lags) / length(important.lags)
+    
+    trend.stationary.ts.new <- diff(trend.stationary.ts)
+    trend.stationary.ts.new.pacf <- pacf(trend.stationary.ts.new)
+    trend.stationary.ts.new.pacf.lags <- trend.stationary.ts.new.pacf$acf
+    
+    trend.stationary.ts.new.limits.pacf <- corellogram.limits(trend.stationary.ts.new.pacf)
+    trend.stationary.ts.new.pacf.interval.width <- trend.stationary.ts.new.limits.pacf$ub - trend.stationary.ts.new.limits.pacf$lb
+    important.lags.new <- abs(trend.stationary.ts.new.pacf.lags) > (fraction.of.interval.width * trend.stationary.ts.new.pacf.interval.width)
+    fraction.of.important.lags.NEW <- sum(important.lags.new) / length(important.lags.new)
+    
+    previous.trend.stationary.ts <- trend.stationary.ts
+    
+    while((d <= d.limit) && (fraction.of.important.lags.NEW <= fraction.of.important.lags)) {
+      previous.trend.stationary.ts <- trend.stationary.ts
+      previous.d <- d
+      d <- d + 1
+      trend.stationary.ts.pacf <- pacf(trend.stationary.ts)
+      trend.stationary.ts.pacf.lags <- trend.stationary.ts.pacf$acf
+      
+      fraction.of.interval.width <- 0.5 # raw estimate
+      
+      trend.stationary.ts.limits.pacf <- corellogram.limits(trend.stationary.ts.pacf)
+      trend.stationary.ts.pacf.interval.width <- trend.stationary.ts.limits.pacf$ub - trend.stationary.ts.limits.pacf$lb
+      important.lags <- abs(trend.stationary.ts.pacf.lags) > (fraction.of.interval.width * trend.stationary.ts.pacf.interval.width)
+      fraction.of.important.lags <- sum(important.lags) / length(important.lags)
+      
+      trend.stationary.ts.new <- diff(trend.stationary.ts)
+      trend.stationary.ts.new.pacf <- pacf(trend.stationary.ts.new)
+      trend.stationary.ts.new.pacf.lags <- trend.stationary.ts.new.pacf$acf
+      
+      trend.stationary.ts.new.limits.pacf <- corellogram.limits(trend.stationary.ts.new.pacf)
+      trend.stationary.ts.new.pacf.interval.width <- trend.stationary.ts.new.limits.pacf$ub - trend.stationary.ts.new.limits.pacf$lb
+      important.lags.new <- abs(trend.stationary.ts.new.pacf.lags) > (fraction.of.interval.width * trend.stationary.ts.new.pacf.interval.width)
+      fraction.of.important.lags.NEW <- sum(important.lags.new) / length(important.lags.new)
+      trend.stationary.ts <- trend.stationary.ts.new
+    }
+    
+    d <- previous.d
+    trend.stationary.ts <- previous.trend.stationary.ts
   }
   
   # III. Estimating the trend
   trended.data <- data.frame(time = time(trend.stationary.ts), value = trend.stationary.ts)
   ts.trend <- lm(value ~ time, data = trended.data)
-  detrend.stationary <- trend.stationary.ts - ts.trend$fitted.values
+  #detrend.stationary <- trend.stationary.ts - ts.trend$fitted.values
+  detrend.stationary <- trend.stationary.ts
   
   # IV. Estimating the MA component coefficients for ARIMA
   acf.detrend <- acf(detrend.stationary)
