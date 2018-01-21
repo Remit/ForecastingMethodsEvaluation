@@ -4,6 +4,7 @@ library(tseries)
 library(fGarch)
 library(forecast)
 
+Sys.setlocale("LC_TIME", "English") # This is very important in case the computer locale for time is different from English - it is needed for weekends marking. TODO: workaround?
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/ARIMAForecast.R"))
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/ANNForecast.R"))
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/ETSForecast.R"))
@@ -46,9 +47,17 @@ testing.of.single.timeseries <- function(time.series) {
   sarima.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARIMA")
   sarima.end.time <- Sys.time()
   
+  sarimaoa.start.time <- Sys.time()
+  sarimaoa.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SOAARIMA")
+  sarimaoa.end.time <- Sys.time()
+  
   sarima.garch.start.time <- Sys.time()
   sarima.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARIMA+GARCH")
   sarima.garch.end.time <- Sys.time()
+  
+  sarimaoa.garch.start.time <- Sys.time()
+  sarimaoa.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SOAARIMA+GARCH")
+  sarimaoa.garch.end.time <- Sys.time()
   
   sarfima.start.time <- Sys.time()
   sarfima.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARFIMA")
@@ -65,7 +74,9 @@ testing.of.single.timeseries <- function(time.series) {
   # Estimating running time of prediction algorithms
   ets.duration <- difftime(ets.end.time, ets.start.time, units = "secs")
   sarima.duration <- difftime(sarima.end.time, sarima.start.time, units = "secs")
+  sarimaoa.duration <- difftime(sarimaoa.end.time, sarimaoa.start.time, units = "secs")
   sarima.garch.duration <- difftime(sarima.garch.end.time, sarima.garch.start.time, units = "secs")
+  sarimaoa.garch.duration <- difftime(sarimaoa.garch.end.time, sarimaoa.garch.start.time, units = "secs")
   sarfima.duration <- difftime(sarfima.end.time, sarfima.start.time, units = "secs")
   sarfima.garch.duration <- difftime(sarfima.garch.end.time, sarfima.garch.start.time, units = "secs")
   lm.duration <- difftime(lm.end.time, lm.start.time, units = "secs")
@@ -80,8 +91,12 @@ testing.of.single.timeseries <- function(time.series) {
   ets.ub.95 <- ets.forecast.res$upper[,2]
   sarima.lb.95 <- sarima.forecast.res$lower[,2]
   sarima.ub.95 <- sarima.forecast.res$upper[,2]
+  sarimaoa.lb.95 <- sarimaoa.forecast.res$lower[,2]
+  sarimaoa.ub.95 <- sarimaoa.forecast.res$upper[,2]
   sarima.garch.lb.95 <- sarima.garch.forecast.res$lower[,2]
   sarima.garch.ub.95 <- sarima.garch.forecast.res$upper[,2]
+  sarimaoa.garch.lb.95 <- sarimaoa.garch.forecast.res$lower[,2]
+  sarimaoa.garch.ub.95 <- sarimaoa.garch.forecast.res$upper[,2]
   sarfima.lb.95 <- sarfima.forecast.res$lower
   sarfima.ub.95 <- sarfima.forecast.res$upper
   sarfima.garch.lb.95 <- sarfima.garch.forecast.res$lower
@@ -92,20 +107,26 @@ testing.of.single.timeseries <- function(time.series) {
   #ann.score <- interval.score(ann.lb.95, ann.ub.95, actual.vals, alpha)
   ets.score <- interval.score(ets.lb.95, ets.ub.95, actual.vals, alpha)
   sarima.score <- interval.score(sarima.lb.95, sarima.ub.95, actual.vals, alpha)
+  sarimaoa.score <- interval.score(sarimaoa.lb.95, sarimaoa.ub.95, actual.vals, alpha)
   sarima.garch.score <- interval.score(sarima.garch.lb.95, sarima.garch.ub.95, actual.vals, alpha)
+  sarimaoa.garch.score <- interval.score(sarimaoa.garch.lb.95, sarimaoa.garch.ub.95, actual.vals, alpha)
   sarfima.score <- interval.score(sarfima.lb.95, sarfima.ub.95, actual.vals, alpha)
   sarfima.garch.score <- interval.score(sarfima.garch.lb.95, sarfima.garch.ub.95, actual.vals, alpha)
   lm.score <- interval.score(lm.lb.95, lm.ub.95, actual.vals, alpha)
   
   scores <- data.frame(ets.score = ets.score,
                     sarima.score = sarima.score,
+                    sarimaoa.score = sarimaoa.score,
                     sarima.garch.score = sarima.garch.score,
+                    sarimaoa.garch.score = sarimaoa.garch.score,
                     sarfima.score = sarfima.score,
                     sarfima.garch.score = sarfima.garch.score,
                     lm.score = lm.score,
                     ets.duration = ets.duration,
                     sarima.duration = sarima.duration,
+                    sarimaoa.duration = sarimaoa.duration,
                     sarima.garch.duration = sarima.garch.duration,
+                    sarimaoa.garch.duration = sarimaoa.garch.duration,
                     sarfima.duration = sarfima.duration,
                     sarfima.garch.duration = sarfima.garch.duration,
                     lm.duration = lm.duration)
@@ -114,8 +135,12 @@ testing.of.single.timeseries <- function(time.series) {
                                   ets.ub.95 = ets.ub.95,
                                   sarima.lb.95 = sarima.lb.95,
                                   sarima.ub.95 = sarima.ub.95,
+                                  sarimaoa.lb.95 = sarimaoa.lb.95,
+                                  sarimaoa.ub.95 = sarimaoa.ub.95,
                                   sarima.garch.lb.95 = sarima.garch.lb.95,
                                   sarima.garch.ub.95 = sarima.garch.ub.95,
+                                  sarimaoa.garch.lb.95 = sarimaoa.garch.lb.95,
+                                  sarimaoa.garch.ub.95 = sarimaoa.garch.ub.95,
                                   sarfima.lb.95 = sarfima.lb.95,
                                   sarfima.ub.95 = sarfima.ub.95,
                                   sarfima.garch.lb.95 = sarfima.garch.lb.95,
@@ -154,9 +179,15 @@ overall.testing <- function(list.of.data) {
 }
 
 # Main script for testing
-file.path <- "/home/remit/dissCloud/Instana/data/metrics.csv"
+#file.path <- "/home/remit/dissCloud/Instana/data/metrics.csv"
+file.path <- "D:/Business/Core/testdata/metrics.csv"
 data.raw <- read.csv2(file = file.path, header = F, sep = ",", stringsAsFactors = F)
 lst <- ts.preprocessing.matrix.Instana(data.raw)
+scores.and.models <- overall.testing(tst.sample)
+#outliers test
+#tst.sample <- list(lst[[11]])
+#tst.sample[[1]][202] <- 0.1
+#scores.and.models <- overall.testing(tst.sample)
 scores.and.models <- overall.testing(lst[7:8])
 
 

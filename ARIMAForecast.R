@@ -1,6 +1,7 @@
 require(forecast)
 require(tseries)
 require(rugarch)
+require(tsoutliers)
 
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/Facilities.R"))
 
@@ -51,15 +52,41 @@ get.SARIMA.with.defined.parameters <- function(request.time.series.list, paramet
   
   arima.period <- parameters[4]
   
-  print(paste0("ARIMA period is ", arima.period))
-  
   fit <- forecast::Arima(request.time.series.list$series,
                          order = c(parameters[1], parameters[2], parameters[3]),
                          seasonal = list(order = c(parameters[5], parameters[6], parameters[7]),
                                          period = arima.period),
                          method = "CSS",
                          xreg = marked.days)
+
   return(fit)
+}
+
+#Function to fit SARIMA model adjusted for outliers
+create.SARIMA.model.weekly.OutliersAdjusted <- function(request.time.series.list, parameters) {
+  marked.days <- mark.time(request.time.series.list$start,
+                           request.time.series.list$end,
+                           request.time.series.list$discretion)
+  
+  arima.period <- parameters[4]
+  fit.tso <- tsoutliers::tso(request.time.series.list$series,
+                         marked.days,
+                         types = c("IO", "AO", "TC"),
+                         maxit.oloop = 15,
+                         tsmethod = "arima",
+                         args.tsmethod = list(order = c(parameters[1], parameters[2], parameters[3]),
+                                              seasonal = list(order = c(parameters[5], parameters[6], parameters[7]),
+                                                              period = arima.period),
+                         method = "CSS"))
+  # fit <- fit.tso$fit
+  # xreg <- outliers.effects(fit.tso$outliers, length(request.time.series.list$series))
+  # xreg <- cbind(marked.days, xreg)
+  # xreg.mat <- matrix(marked.days)
+  # row.names(xreg.mat) <- names(marked.days)
+  # colnames(xreg.mat) <- "marked.days"
+  # fit$xreg <- xreg.mat
+  # fit.tso$fit <- fit
+  return(fit.tso)
 }
 
 # A function to create the SARIMA model either using best AIC automatic fit model or the model with the specified
@@ -74,12 +101,26 @@ create.SARIMA.model.weekly <- function(request.time.series.list, auto = TRUE, pa
   }
 }
 
-forecast.requests <- function(request.time.series.list, ARIMA.model, n.predicted.values) {
+forecast.requests <- function(request.time.series.list, ARIMA.model, n.predicted.values, outliers = NULL) {
   start = request.time.series.list$end
   discretion = request.time.series.list$discretion
   duration = n.predicted.values * discretion
   marked.ts.for.prediction = mark.time(start + discretion, start + duration, discretion)
-  prediction = forecast::forecast(ARIMA.model, h = n.predicted.values, xreg = marked.ts.for.prediction)
+  newxreg <- marked.ts.for.prediction
+  
+  if(!is.null(outliers)) {
+    marked.days <- mark.time(request.time.series.list$start,
+                             request.time.series.list$end,
+                             request.time.series.list$discretion)
+    newxreg <- outliers.effects(outliers, length(request.time.series.list$series) + n.predicted.values)
+    newxreg <- cbind(c(marked.days, marked.ts.for.prediction), newxreg)
+    colnames(newxreg)[1] <- "xreg"
+    newxreg <- ts(newxreg[-seq_along(request.time.series.list$series),], start = as.numeric(start))
+    ARIMA.model$xreg <- ARIMA.model$call$xreg
+  }
+  
+  prediction = forecast::forecast(ARIMA.model, h = n.predicted.values, xreg = newxreg)
+  # https://stats.stackexchange.com/questions/169468/how-to-do-forecasting-with-detection-of-outliers-in-r-time-series-analysis-pr
   return(prediction)
 }
 
@@ -274,9 +315,14 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   
   # VII. Deriving ARIMA model based on the derived parameters
   ARIMA.model <- NULL
+  outliers <- NULL
   
   if(length(grep("SARIMA", model.type)) > 0) {
     ARIMA.model <- create.SARIMA.model.weekly(train.timeseries, FALSE, c(p,d,q,s,P,D,Q))
+  } else if(length(grep("SOAARIMA", model.type)) > 0) { # Adjusting the acquired model for possible outliers.
+    ARIMA.model.full <- create.SARIMA.model.weekly.OutliersAdjusted(train.timeseries, c(p,d,q,s,P,D,Q))
+    ARIMA.model <- ARIMA.model.full$fit
+    outliers <- ARIMA.model.full$outliers
   } else if(length(grep("SARFIMA", model.type)) > 0) {
     marked.days <- mark.time(train.timeseries$start,
                              train.timeseries$end,
@@ -292,8 +338,8 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   # Forecasting using basic ARIMA model
   ARIMA.forecast <- NULL
   
-  if(length(grep("SARIMA", model.type)) > 0) {
-    ARIMA.forecast <- forecast.requests(train.timeseries, ARIMA.model, pred.steps)
+  if((length(grep("SARIMA", model.type)) > 0) || (length(grep("SOAARIMA", model.type)) > 0)) {
+    ARIMA.forecast <- forecast.requests(train.timeseries, ARIMA.model, pred.steps, outliers)
   } else if(length(grep("SARFIMA", model.type)) > 0) {
     start = train.timeseries$end
     discretion = train.timeseries$discretion
@@ -316,7 +362,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   if(length(grep("SARIMA", model.type)) > 0) {
     trend.predictions <- predict(ts.trend, data.frame(time = seq(start(resulting.model$mean), end(resulting.model$mean), 3600)))
     SARIMA.forecast.adjusted.by.trend <- resulting.model
-    SARIMA.forecast.adjusted.by.trend$mean <- SARIMA.forecast.adjusted.by.GARCH$mean + ts(trend.predictions,
+    SARIMA.forecast.adjusted.by.trend$mean <- SARIMA.forecast.adjusted.by.trend$mean + ts(trend.predictions,
                                                                                           start = start(resulting.model$mean),
                                                                                           end = end(resulting.model$mean),
                                                                                           frequency = frequency(resulting.model$mean))
