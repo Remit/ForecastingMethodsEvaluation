@@ -179,16 +179,15 @@ overall.testing <- function(list.of.data) {
 }
 
 # Main script for testing
-#file.path <- "/home/remit/dissCloud/Instana/data/metrics.csv"
-file.path <- "D:/Business/Core/testdata/metrics.csv"
+file.path <- "/home/remit/dissCloud/Instana/data/metrics.csv"
+#file.path <- "D:/Business/Core/testdata/metrics.csv"
 data.raw <- read.csv2(file = file.path, header = F, sep = ",", stringsAsFactors = F)
 lst <- ts.preprocessing.matrix.Instana(data.raw)
-scores.and.models <- overall.testing(tst.sample)
 #outliers test
 #tst.sample <- list(lst[[11]])
 #tst.sample[[1]][202] <- 0.1
 #scores.and.models <- overall.testing(tst.sample)
-scores.and.models <- overall.testing(lst[7:8])
+scores.and.models <- overall.testing(lst[1:15])#1:15
 
 
 #TESTING the calculation of the number of instances and their prices

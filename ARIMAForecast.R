@@ -108,11 +108,11 @@ forecast.requests <- function(request.time.series.list, ARIMA.model, n.predicted
   marked.ts.for.prediction = mark.time(start + discretion, start + duration, discretion)
   newxreg <- marked.ts.for.prediction
   
-  if(!is.null(outliers)) {
+  if((!is.null(outliers)) && (nrow(outliers) > 0)) {
     marked.days <- mark.time(request.time.series.list$start,
                              request.time.series.list$end,
                              request.time.series.list$discretion)
-    newxreg <- outliers.effects(outliers, length(request.time.series.list$series) + n.predicted.values)
+    newxreg <- outliers.effects(outliers, length(request.time.series.list$series) + n.predicted.values, pars = coefs2poly(ARIMA.model))
     newxreg <- cbind(c(marked.days, marked.ts.for.prediction), newxreg)
     colnames(newxreg)[1] <- "xreg"
     newxreg <- ts(newxreg[-seq_along(request.time.series.list$series),], start = as.numeric(start))
@@ -161,6 +161,7 @@ create.GARCH.model.weekly <- function(train.timeseries, arima.residuals, coefs, 
   garch <- ugarchfit(spec = spec,
                      data = arima.residuals,
                      out.sample = pred.steps,
+                     solver = "hybrid",
                      solver.control=list(trace=0))
 }
 
@@ -323,6 +324,10 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
     ARIMA.model.full <- create.SARIMA.model.weekly.OutliersAdjusted(train.timeseries, c(p,d,q,s,P,D,Q))
     ARIMA.model <- ARIMA.model.full$fit
     outliers <- ARIMA.model.full$outliers
+    if(is.null(outliers) || (nrow(outliers) == 0)) {
+      print("No outliers detected in the time series. Switching to ordinary SARIMA.")
+      ARIMA.model <- create.SARIMA.model.weekly(train.timeseries, FALSE, c(p,d,q,s,P,D,Q))
+    }
   } else if(length(grep("SARFIMA", model.type)) > 0) {
     marked.days <- mark.time(train.timeseries$start,
                              train.timeseries$end,
