@@ -187,7 +187,7 @@ lst <- ts.preprocessing.matrix.Instana(data.raw)
 #tst.sample <- list(lst[[11]])
 #tst.sample[[1]][202] <- 0.1
 #scores.and.models <- overall.testing(tst.sample)
-scores.and.models <- overall.testing(lst[1:15])#1:15
+scores.and.models <- overall.testing(lst[11])#1:15
 
 
 #TESTING the calculation of the number of instances and their prices

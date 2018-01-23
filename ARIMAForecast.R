@@ -170,6 +170,8 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   # Supported time series models:
   # - SARIMA - single SARIMA model
   # - SARIMA+GARCH - SARIMA for forecasting the mean and GARCH for forecasting the variance
+  # - SOAARIMA - outliers-adjusted SARIMA for forecasting the mean and GARCH for forecasting the variance
+  # - SOAARIMA+GARCH - single outliers-adjusted SARIMA model
   # - SARFIMA - single seasonal ARFIMA model
   # - SARFIMA+GARCH - seasonal ARFIMA for forecasting the mean and GARCH for forecasting the variance
   
@@ -183,9 +185,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   train.timeseries$start <- example.ts$start
   train.timeseries$end <- example.ts$end - test.set.length.days * 24 * 3600
   train.timeseries$discretion <- example.ts$discretion
-  
-  
-  
+
   test.ts <- list()
   test.ts$series <- window(example.ts$series, as.numeric(example.ts$end - test.set.length.days * 24 * 3600 + 1), as.numeric(example.ts$end))
   test.ts$start <- example.ts$end - test.set.length.days * 24 * 3600 + 1
@@ -290,8 +290,6 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   # Q
   Q <- determine.coefficient(seasonal.acf, acf.interval.width)
   
-  # TODO: analyzing leftover outliers in ACF if any - indicate possible need for further differencing
-  
   # V. Estimating the AR component coefficients for ARIMA
   pacf.detrend <- pacf(detrend.stationary)
   pacf.ts.limits.detrend <- corellogram.limits(pacf.detrend)
@@ -304,8 +302,6 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   
   # P
   P <- determine.coefficient(seasonal.pacf, pacf.interval.width)
-  
-  # TODO: analyzing leftover outliers in PACF if any - indicate possible need for further differencing
   
   # VI. Estimating the number of seasonal differences
   # D
@@ -373,8 +369,6 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
                                                                                           frequency = frequency(resulting.model$mean))
     resulting.model <- SARIMA.forecast.adjusted.by.trend
   }
-  
-   # TODO: testing for lags that were not captured
   
   # normality - shapiro.test(trend.stationary.ts) --- low p-val - non-normal
   
@@ -450,7 +444,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
                                                                                         end = end(ARIMA.forecast.adjusted.by.GARCH$mean),
                                                                                         frequency = frequency(ARIMA.forecast.adjusted.by.GARCH$mean))
    
-    if(length(grep("SARIMA", model.type)) > 0) {
+    if((length(grep("SARIMA", model.type)) > 0) || (length(grep("SOAARIMA", model.type)) > 0)) {
       ARIMA.forecast.adjusted.by.GARCH$lower[,1] <- ARIMA.forecast.adjusted.by.GARCH$lower[,1] - ts(as.vector(garch.forecast@forecast$sigmaFor),
                                                                                                     start = start(ARIMA.forecast.adjusted.by.GARCH$lower[,1]),
                                                                                                     end = end(ARIMA.forecast.adjusted.by.GARCH$lower[,1]),
