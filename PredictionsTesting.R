@@ -187,7 +187,82 @@ lst <- ts.preprocessing.matrix.Instana(data.raw)
 #tst.sample <- list(lst[[11]])
 #tst.sample[[1]][202] <- 0.1
 #scores.and.models <- overall.testing(tst.sample)
-scores.and.models <- overall.testing(lst[11])#1:15
+scores.and.models <- overall.testing(lst)#1:15
+scores.tst <- scores.and.models$scores
+scores.tst.grpd <- group_by(scores.tst, min.score.index)
+summarise(scores.tst.grpd, n = n())
+
+scores.tst$ets.duration = as.numeric(scores.tst$ets.duration, units="secs")
+scores.tst$sarima.duration = as.numeric(scores.tst$sarima.duration, units="secs")
+scores.tst$sarimaoa.duration = as.numeric(scores.tst$sarimaoa.duration, units="secs")
+scores.tst$sarima.garch.duration = as.numeric(scores.tst$sarima.garch.duration, units="secs")
+scores.tst$sarimaoa.garch.duration = as.numeric(scores.tst$sarimaoa.garch.duration, units="secs")
+scores.tst$sarfima.duration = as.numeric(scores.tst$sarfima.duration, units="secs")
+scores.tst$sarfima.garch.duration = as.numeric(scores.tst$sarfima.garch.duration, units="secs")
+scores.tst$lm.duration = as.numeric(scores.tst$lm.duration, units="secs")
+scores.tst.new.estimate <- scores.tst[,seq(2,7)] * scores.tst[, seq(2,7) + 8]
+scores.tst.new.estimate$min.score.index <- apply(scores.tst.new.estimate, 1, which.min)
+scores.tst.grpd.new.estimate <- group_by(scores.tst.new.estimate, min.score.index)
+summarise(scores.tst.grpd.new.estimate, n = n())
+
+scores.tst.melted <- melt(scores.tst[,1:16])
+scores.tst.melted$variable <- as.character(scores.tst.melted$variable)
+scores.tst.melted$is.score <- grepl("score", scores.tst.melted$variable)
+scores.tst.melted[scores.tst.melted$is.score == TRUE, "method"] <- substr(scores.tst.melted[scores.tst.melted$is.score == TRUE, "variable"],
+                                                                          1,
+                                                                          nchar(scores.tst.melted[scores.tst.melted$is.score == TRUE, "variable"]) - 6)
+scores.tst.melted[scores.tst.melted$is.score == FALSE, "method"] <- substr(scores.tst.melted[scores.tst.melted$is.score == FALSE, "variable"], 
+                                                                          1,
+                                                                          nchar(scores.tst.melted[scores.tst.melted$is.score == FALSE, "variable"]) - 9)
+scores.tst.melted$method <- as.factor(scores.tst.melted$method)
+scores.tst.for.plot <- data.frame(method = scores.tst.melted[scores.tst.melted$is.score == TRUE, "method"],
+                                  score = scores.tst.melted[scores.tst.melted$is.score == TRUE, "value"],
+                                  time = scores.tst.melted[scores.tst.melted$is.score == FALSE, "value"])
+scores.tst.for.plot <- scores.tst.for.plot[!is.nan(scores.tst.for.plot$score),]
+scores.tst.for.plot <- scores.tst.for.plot[scores.tst.for.plot$score < 5,]
+scores.tst.for.plot <- scores.tst.for.plot[scores.tst.for.plot$time < 10,]
+
+ggplot(scores.tst.for.plot, aes(x=score,
+                              y=time,
+                              color=method)) + geom_point()
+
+#GARCH modification vs non-GARCH
+# SARIMAOA
+scores.tst.for.plot.sarimaoa <- scores.tst.for.plot[grep("sarimaoa", scores.tst.for.plot$method),]
+scores.tst.for.plot.sarimaoa$is.garch <- grepl("garch", scores.tst.for.plot.sarimaoa$method)
+ggplot(scores.tst.for.plot.sarimaoa, aes(x=score,
+                                y=time,
+                                color=is.garch)) + geom_point() + ggtitle("Outliers-adjusted SARIMA: GARCH vs. non-GARCH")
+#SARFIMA
+scores.tst.for.plot.sarfima <- scores.tst.for.plot[grep("sarfima", scores.tst.for.plot$method),]
+scores.tst.for.plot.sarfima$is.garch <- grepl("garch", scores.tst.for.plot.sarfima$method)
+ggplot(scores.tst.for.plot.sarfima, aes(x=score,
+                                         y=time,
+                                         color=is.garch)) + geom_point() + ggtitle("Outliers-adjusted SARFIMA: GARCH vs. non-GARCH")
+
+#SARIMA
+scores.tst.for.plot.sarima <- scores.tst.for.plot[scores.tst.for.plot$method %in% c("sarima", "sarima.garch"),]
+scores.tst.for.plot.sarima$is.garch <- grepl("garch", scores.tst.for.plot.sarima$method)
+ggplot(scores.tst.for.plot.sarima, aes(x=score,
+                                      y=time,
+                                      color=is.garch)) + geom_point() + ggtitle("Simple SARIMA: GARCH vs. non-GARCH")
+
+# Conclusion - the overall positive impact of the presence of GARCH component in the model is not so evident, although it is definetely increases the duration of model fit procedure.
+
+#Outliers-aligned modification vs simple
+scores.tst.for.plot.oa <- scores.tst.for.plot
+scores.tst.for.plot.oa$is.outliers.aligned <- grepl("sarimaoa", scores.tst.for.plot.oa$method)
+ggplot(scores.tst.for.plot.oa, aes(x=score,
+                                   y=time,
+                                   color=is.outliers.aligned)) + geom_point() + ggtitle("SARIMA: simple vs. outliers-aligned")
+
+#Conclusion - accounting for outliers does not grant any advantage in terms of the score although on average requires slightly more time for fitting the model
+#nevertheless, it is necessary to adjust for outliers as in other data series we may find some outliers that would bias our model significantly
+
+# Pairwise comparison of models in terms of score
+pairs(scores.tst[,1:8])
+# Pairwise comparison of models in terms of fitting duration
+pairs(scores.tst[,9:16])
 
 
 #TESTING the calculation of the number of instances and their prices
