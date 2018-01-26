@@ -188,7 +188,9 @@ lst <- ts.preprocessing.matrix.Instana(data.raw)
 #tst.sample[[1]][202] <- 0.1
 #scores.and.models <- overall.testing(tst.sample)
 scores.and.models <- overall.testing(lst)#1:15
+ts.characteristics <- compute.characteristics(lst)
 scores.tst <- scores.and.models$scores
+scores.tst.enhanced <- cbind(scores.tst, ts.characteristics)
 scores.tst.grpd <- group_by(scores.tst, min.score.index)
 summarise(scores.tst.grpd, n = n())
 
@@ -219,12 +221,65 @@ scores.tst.for.plot <- data.frame(method = scores.tst.melted[scores.tst.melted$i
                                   score = scores.tst.melted[scores.tst.melted$is.score == TRUE, "value"],
                                   time = scores.tst.melted[scores.tst.melted$is.score == FALSE, "value"])
 scores.tst.for.plot <- scores.tst.for.plot[!is.nan(scores.tst.for.plot$score),]
-scores.tst.for.plot <- scores.tst.for.plot[scores.tst.for.plot$score < 5,]
-scores.tst.for.plot <- scores.tst.for.plot[scores.tst.for.plot$time < 10,]
 
+# General plot
 ggplot(scores.tst.for.plot, aes(x=score,
                               y=time,
                               color=method)) + geom_point()
+
+# Medians help to organize the acquired data points into 4 classes. Leftmost lower quadrant represents the class with the most efficient forecasting algs.
+median.score <- median(scores.tst.for.plot$score)
+median.time <- median(scores.tst.for.plot$time)
+
+# Quadrant classes
+# First class methods (best score & best time)
+scores.tst.for.plot.first.class <- scores.tst.for.plot[scores.tst.for.plot$score <= median.score,]
+scores.tst.for.plot.first.class <- scores.tst.for.plot.first.class[scores.tst.for.plot.first.class$time <= median.time,]
+scores.tst.for.plot.first.class.grpd <- group_by(scores.tst.for.plot.first.class, method)
+methods.first.class <- summarise(scores.tst.for.plot.first.class.grpd, n = n()) 
+methods.first.class$frequency.in.class <- methods.first.class$n / nrow(scores.tst)
+
+# Second class methods (best score & bad time)
+scores.tst.for.plot.second.class <- scores.tst.for.plot[scores.tst.for.plot$score <= median.score,]
+scores.tst.for.plot.second.class <- scores.tst.for.plot.second.class[scores.tst.for.plot.second.class$time > median.time,]
+scores.tst.for.plot.second.class.grpd <- group_by(scores.tst.for.plot.second.class, method)
+methods.second.class <- summarise(scores.tst.for.plot.second.class.grpd, n = n()) 
+methods.second.class$frequency.in.class <- methods.second.class$n / nrow(scores.tst)
+
+# Third class methods (bad score & best time)
+scores.tst.for.plot.third.class <- scores.tst.for.plot[scores.tst.for.plot$score > median.score,]
+scores.tst.for.plot.third.class <- scores.tst.for.plot.third.class[scores.tst.for.plot.third.class$time <= median.time,]
+scores.tst.for.plot.third.class.grpd <- group_by(scores.tst.for.plot.third.class, method)
+methods.third.class <- summarise(scores.tst.for.plot.third.class.grpd, n = n()) 
+methods.third.class$frequency.in.class <- methods.third.class$n / nrow(scores.tst)
+
+# Fourth class methods (bad score & bad time)
+scores.tst.for.plot.fourth.class <- scores.tst.for.plot[scores.tst.for.plot$score > median.score,]
+scores.tst.for.plot.fourth.class <- scores.tst.for.plot.fourth.class[scores.tst.for.plot.fourth.class$time > median.time,]
+scores.tst.for.plot.fourth.class.grpd <- group_by(scores.tst.for.plot.fourth.class, method)
+methods.fourth.class <- summarise(scores.tst.for.plot.fourth.class.grpd, n = n()) 
+methods.fourth.class$frequency.in.class <- methods.fourth.class$n / nrow(scores.tst)
+
+# Result: Best model in respect both to time and score - SARIMA. although not the best for the majority of cases as is shown below.
+
+# High-score vs. low-score
+scores.tst.for.plot.best.score <- scores.tst.for.plot[scores.tst.for.plot$score <= median.score,]
+scores.tst.for.plot.best.score.grpd <- group_by(scores.tst.for.plot.best.score, method)
+best.scores <- summarise(scores.tst.for.plot.best.score.grpd, n = n())
+best.scores$frequency.in.class <- best.scores$n / nrow(scores.tst)
+
+# Result: Best model in respect to score - outliers-adjusted SARIMA with GARCH
+
+# parameters to zoom in the graph as the points are dense near the (0,0) coordinate
+SCORE.ZOOM <- median.score * 2 
+TIME.ZOOM <- median.time * 2
+scores.tst.for.plot <- scores.tst.for.plot[scores.tst.for.plot$score <= SCORE.ZOOM,]
+scores.tst.for.plot <- scores.tst.for.plot[scores.tst.for.plot$time <= TIME.ZOOM,]
+
+#Zoomed plot with classes identified
+ggplot(scores.tst.for.plot, aes(x=score,
+                                y=time,
+                                color=method)) + geom_point() + geom_vline(xintercept = median.score) + geom_hline(yintercept = median.time)
 
 #GARCH modification vs non-GARCH
 # SARIMAOA
@@ -280,3 +335,21 @@ t2.micro.price <- sum(t2.micro.num * requests.bottlenecks[1,"cost.per.hour"])
 t2.small.price <- sum(t2.micro.num * requests.bottlenecks[2,"cost.per.hour"])
 t2.medium.price <- sum(t2.micro.num * requests.bottlenecks[3,"cost.per.hour"])
 t2.large.price <- sum(t2.micro.num * requests.bottlenecks[4,"cost.per.hour"])
+
+
+# IDEAS:
+# 1. Add ARIMA models without regressors to look at the influence of these
+# 2. Add SSA non-parametric method https://ru.wikipedia.org/wiki/SSA_(%D0%BC%D0%B5%D1%82%D0%BE%D0%B4) (https://cran.r-project.org/web/packages/Rssa/Rssa.pdf) - R package Rssa
+# 3. Add SVMs models (?) if not too much time https://www.elen.ucl.ac.be/Proceedings/esann/esannpdf/es2010-28.pdf 
+
+influx.con <- influx_connection(scheme = "http", host = "34.217.33.66", port = 32589, user = "root", pass = "root")
+show_databases(influx.con)
+ns <- influx_query(influx.con, db = "k8s", query = 'SHOW TAG VALUES FROM uptime WITH KEY=namespace_name', timestamp_format = "s", return_xts = FALSE)
+
+get.pod.names <- function(namespace) {
+  influx_query(influx.con, db = "k8s", query = paste0("SHOW TAG VALUES FROM uptime WITH KEY = pod_name WHERE namespace_name = '",namespace,"'"), timestamp_format = "s", return_xts = FALSE)
+}
+
+lapply(ns[[1]]$value, get.pod.names)
+
+t <- influx_select(influx.con, "k8s", field_keys = "*", rp = "default", measurement = "cpu/usage_rate", group_by = "*")
