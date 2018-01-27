@@ -341,15 +341,77 @@ t2.large.price <- sum(t2.micro.num * requests.bottlenecks[4,"cost.per.hour"])
 # 1. Add ARIMA models without regressors to look at the influence of these
 # 2. Add SSA non-parametric method https://ru.wikipedia.org/wiki/SSA_(%D0%BC%D0%B5%D1%82%D0%BE%D0%B4) (https://cran.r-project.org/web/packages/Rssa/Rssa.pdf) - R package Rssa
 # 3. Add SVMs models (?) if not too much time https://www.elen.ucl.ac.be/Proceedings/esann/esannpdf/es2010-28.pdf 
-
+library(influxdbr)
 influx.con <- influx_connection(scheme = "http", host = "34.217.33.66", port = 32589, user = "root", pass = "root")
 show_databases(influx.con)
-ns <- influx_query(influx.con, db = "k8s", query = 'SHOW TAG VALUES FROM uptime WITH KEY=namespace_name', timestamp_format = "s", return_xts = FALSE)
+ns.raw <- influx_query(influx.con, db = "k8s", query = 'SHOW TAG VALUES FROM uptime WITH KEY=namespace_name', timestamp_format = "s", return_xts = FALSE)
+name.spaces <- ns.raw[[1]]$value
 
-get.pod.names <- function(namespace) {
+get.pod.names.raw <- function(namespace) {
   influx_query(influx.con, db = "k8s", query = paste0("SHOW TAG VALUES FROM uptime WITH KEY = pod_name WHERE namespace_name = '",namespace,"'"), timestamp_format = "s", return_xts = FALSE)
 }
 
-lapply(ns[[1]]$value, get.pod.names)
+get.pod.names <- function(pod.names.raw.table) {
+  pod.names.raw.table$value
+}
 
-t <- influx_select(influx.con, "k8s", field_keys = "*", rp = "default", measurement = "cpu/usage_rate", group_by = "*")
+pod.names.raw <- sapply(name.spaces, get.pod.names.raw)
+pod.names <- sapply(pod.names.raw, get.pod.names)
+
+metrics.raw <- influx_query(influx.con, db = "k8s", query = 'SHOW MEASUREMENTS', timestamp_format = "s", return_xts = FALSE)
+metrics <- metrics.raw[[1]]$name
+
+get.values.by.pod.name <- function(pod.name, metric, name.space) {
+  time.series.df <- tryCatch(
+    { 
+      time.series.raw <- influx_select(influx.con,
+                                   "k8s",
+                                   field_keys = "value",
+                                   rp = "default",
+                                   measurement = metric,
+                                   where = paste0("type = 'pod' AND pod_name = '",
+                                                  pod.name,
+                                                  "' AND namespace_name = '",
+                                                  name.space,
+                                                  "'"),
+                                   group_by = "*")
+      time.series <- time.series.raw[[1]][[1]]
+      data.frame(pod.name = rep(pod.name, length(time.series)),
+                 time = as.numeric(time(time.series)),
+                 value = time.series$value)
+    },
+    error=function(cond) {
+      er.ret <- data.frame(pod.name = character(),
+                           time = numeric(),
+                           value = numeric())
+      return(er.ret)
+    })
+
+  return(time.series.df)
+}
+
+get.values.by.namespace <- function(name.space, metric, pod.names) {
+  pod.names.for.ns <- pod.names[name.space][[1]]
+  vals.by.name.space.lst <- lapply(pod.names.for.ns, get.values.by.pod.name, metric, name.space)
+  vals.by.name.space <- do.call("rbind", vals.by.name.space.lst)
+  vals.by.name.space$name.space <- rep(name.space, nrow(vals.by.name.space))
+  return(vals.by.name.space)
+}
+
+get.values.by.metric <- function(metric, name.spaces, pod.names) {
+  vals.by.metric.lst <- lapply(name.spaces, get.values.by.namespace, metric, pod.names)
+  vals.by.metric <- do.call("rbind", vals.by.metric.lst)
+  vals.by.metric$metric<- rep(metric, nrow(vals.by.metric))
+  return(vals.by.metric)
+}
+
+get.values <- function(name.spaces, metrics, pod.names) {
+  vals.lst <- lapply(metrics, get.values.by.metric, name.spaces, pod.names)
+  vals <- do.call("rbind", vals.lst)
+  return(vals)
+}
+
+# Get all the metrics data from influxdb: 1, 6, 
+performance.data <- get.values(name.spaces, metrics[7], pod.names)
+
+#SHOW MEASUREMENTS
