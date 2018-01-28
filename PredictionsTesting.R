@@ -412,6 +412,108 @@ get.values <- function(name.spaces, metrics, pod.names) {
 }
 
 # Get all the metrics data from influxdb: 1, 6, 
-performance.data <- get.values(name.spaces, metrics[7], pod.names)
+performance.data <- get.values(name.spaces, metrics, pod.names)
+#adjustment for the influxdb machine TODO: delete when it is not necessary anymore
+performance.data$time <- performance.data$time - 3600
+
+# Getting requests data from the mongo
+library(mongolite)
+library(dplyr)
+mongo.url <- "mongodb://34.217.33.66"
+collection.name <- "kubeserver"
+db.name <- "t2medium"
+conMongo.requests <- mongo(collection.name, db.name, mongo.url)
+if(conMongo.requests$count() > 0) {
+  Requests.data <- conMongo.requests$find()
+}
+
+data.for.cpu.usage.rate <- performance.data[performance.data$metric == "cpu/usage_rate", ]
+data.for.cpu.usage.rate.for.pod <- data.for.cpu.usage.rate[data.for.cpu.usage.rate$pod.name == "product-descp-service-79c65844c6-v28dv",]
+
+
+cpu.usage.time <- as.POSIXct(data.for.cpu.usage.rate.for.pod$time, origin="1970-01-01")
+requests.ts <- xts(Requests.data$aggregate$rps, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
+errors.ts <- xts(Requests.data$aggregate$errors, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
+cpu.ts <- xts(data.for.cpu.usage.rate.for.pod$value, cpu.usage.time)
+
+# Adjusting timelines for different timeseries in order to conduct the analysis
+cpu.ts.adapted <- as.numeric(time(cpu.ts))
+requests.ts.adapted <- as.numeric(time(requests.ts))
+
+baseline.ts <- NULL
+adaptable.ts <- NULL
+adaptable.vals <- NULL
+if(length(requests.ts.adapted) < length(cpu.ts.adapted)) {
+  baseline.ts <- requests.ts.adapted
+  adaptable.ts <- cpu.ts.adapted
+  adaptable.vals <- data.for.cpu.usage.rate.for.pod$value
+} else {
+  baseline.ts <- cpu.ts.adapted
+  adaptable.ts <- requests.ts.adapted
+  adaptable.vals <- Requests.data$aggregate$rps
+}
+
+baseline.ts.diff <- diff(baseline.ts)
+baseline.ts.diff.half.intvl <- baseline.ts.diff / 2
+intervals <- data.frame(lb = baseline.ts,
+                        ub = baseline.ts)
+intervals[1,"lb"] <- 0
+intervals[2:nrow(intervals),"lb"] <- intervals[2:nrow(intervals),"lb"] - ceiling(baseline.ts.diff.half.intvl)
+intervals[1:(nrow(intervals) - 1),"ub"] <- intervals[1:(nrow(intervals) - 1),"ub"] + floor(baseline.ts.diff.half.intvl)
+intervals[nrow(intervals),"ub"] <- Inf
+
+check.interval <- function(value, intervals) {
+  which((value >= intervals$lb) & (value < intervals$ub))
+}
+  
+marked.ts.values <- unlist(sapply(adaptable.ts, check.interval, intervals))
+adabtable.df <- data.frame(adaptable.ts = adaptable.ts,
+                           adaptable.vals = adaptable.vals,
+                           interval = marked.ts.values)
+adabtable.df.grp <- group_by(adabtable.df, adabtable.df$interval)
+adabtable.df.grp.summary <- summarise(adabtable.df.grp, new.val = mean(adaptable.vals))
+names(adabtable.df.grp.summary) <- c("interval", "val")
+'%!in%' <- function(x,y)!('%in%'(x,y))
+adj.indices <- which(seq(1,length(baseline.ts)) %!in% adabtable.df.grp.summary$interval)
+
+fill.in.gaps <- function(index.val, adabtable.df.grp.summary) {
+  ret <- NULL
+  if(index.val < min(adabtable.df.grp.summary$interval)) {
+    ret <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == min(adabtable.df.grp.summary$interval),"val"][[1]]
+  } else if(index.val > max(adabtable.df.grp.summary$interval)) {
+    ret <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == max(adabtable.df.grp.summary$interval),"val"][[1]]
+  } else {
+    differences <- data.frame(intvl = adabtable.df.grp.summary$interval,
+                              diff = adabtable.df.grp.summary$interval - index.val)
+    differences.pos <- differences[differences$diff > 0,]
+    differences.neg <- differences[differences$diff < 0,]
+    start.ind <- differences.neg[which.max(differences.neg$diff), "intvl"]
+    end.ind <- differences.pos[which.min(differences.neg$diff), "intvl"]
+    start.val <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == start.ind,"val"][[1]]
+    end.val <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == end.ind,"val"][[1]]
+    ret <- mean(c(start.val, end.val))
+  }
+  
+  return(ret)
+}
+
+vals.for.gaps <- unlist(sapply(adj.indices, fill.in.gaps, adabtable.df.grp.summary))
+extended.grps <- data.frame(interval = adj.indices,
+                            val = vals.for.gaps)
+adabtable.df.grp.summary.adjusted <- rbind(adabtable.df.grp.summary, extended.grps)
+adabtable.df.grp.summary.adjusted <- adabtable.df.grp.summary.adjusted[with(adabtable.df.grp.summary.adjusted, order(interval)), ]
+
+adapted.ts <- xts(adabtable.df.grp.summary.adjusted$val,
+                  as.POSIXct(baseline.ts,  origin="1970-01-01"))
+
+errors.ts.adapted <- errors.ts$ETIMEDOUT
+errors.ts.adapted.vec <- as.vector(coredata(errors.ts.adapted))
+errors.ts.adapted.vec[is.na(errors.ts.adapted.vec)] <- 0
+errors.ts.adapted <- xts(errors.ts.adapted.vec, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
+
+par(mfrow = c(3,1))
+plot(adapted.ts)
+plot(errors.ts.adapted)
+plot(requests.ts)
 
 #SHOW MEASUREMENTS
