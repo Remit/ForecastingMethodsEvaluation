@@ -427,14 +427,24 @@ if(conMongo.requests$count() > 0) {
   Requests.data <- conMongo.requests$find()
 }
 
+# TODO: add flexible analysis for diff. metrics and pods
 data.for.cpu.usage.rate <- performance.data[performance.data$metric == "cpu/usage_rate", ]
 data.for.cpu.usage.rate.for.pod <- data.for.cpu.usage.rate[data.for.cpu.usage.rate$pod.name == "product-descp-service-79c65844c6-v28dv",]
 
-
 cpu.usage.time <- as.POSIXct(data.for.cpu.usage.rate.for.pod$time, origin="1970-01-01")
-requests.ts <- xts(Requests.data$aggregate$rps, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
-errors.ts <- xts(Requests.data$aggregate$errors, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
 cpu.ts <- xts(data.for.cpu.usage.rate.for.pod$value, cpu.usage.time)
+
+errors.ts.adapted <- Requests.data$aggregate$errors$ETIMEDOUT
+errors.ts.adapted.vec <- as.vector(coredata(errors.ts.adapted))
+errors.ts.adapted.vec[is.na(errors.ts.adapted.vec)] <- 0
+errors.ts <- xts(errors.ts.adapted.vec, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
+
+latency.ts.adapted <- Requests.data$aggregate$latency$p99
+latency.ts.adapted.vec <- as.vector(coredata(latency.ts.adapted))
+latency.ts.adapted.vec[is.na(latency.ts.adapted.vec)] <- 0
+latency.ts <- xts(latency.ts.adapted.vec, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
+
+requests.ts <- xts(Requests.data$aggregate$rps, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
 
 # Adjusting timelines for different timeseries in order to conduct the analysis
 cpu.ts.adapted <- as.numeric(time(cpu.ts))
@@ -442,15 +452,17 @@ requests.ts.adapted <- as.numeric(time(requests.ts))
 
 baseline.ts <- NULL
 adaptable.ts <- NULL
-adaptable.vals <- NULL
+adaptable.vals <- list()
 if(length(requests.ts.adapted) < length(cpu.ts.adapted)) {
   baseline.ts <- requests.ts.adapted
   adaptable.ts <- cpu.ts.adapted
-  adaptable.vals <- data.for.cpu.usage.rate.for.pod$value
+  adaptable.vals$cpu.usage <- data.for.cpu.usage.rate.for.pod$value
 } else {
   baseline.ts <- cpu.ts.adapted
   adaptable.ts <- requests.ts.adapted
-  adaptable.vals <- Requests.data$aggregate$rps
+  adaptable.vals$rps <- Requests.data$aggregate$rps
+  adaptable.vals$errors <- Requests.data$aggregate$errors
+  adaptable.vals$latency <- Requests.data$aggregate$latency
 }
 
 baseline.ts.diff <- diff(baseline.ts)
@@ -467,53 +479,62 @@ check.interval <- function(value, intervals) {
 }
   
 marked.ts.values <- unlist(sapply(adaptable.ts, check.interval, intervals))
-adabtable.df <- data.frame(adaptable.ts = adaptable.ts,
-                           adaptable.vals = adaptable.vals,
-                           interval = marked.ts.values)
-adabtable.df.grp <- group_by(adabtable.df, adabtable.df$interval)
-adabtable.df.grp.summary <- summarise(adabtable.df.grp, new.val = mean(adaptable.vals))
-names(adabtable.df.grp.summary) <- c("interval", "val")
-'%!in%' <- function(x,y)!('%in%'(x,y))
-adj.indices <- which(seq(1,length(baseline.ts)) %!in% adabtable.df.grp.summary$interval)
 
-fill.in.gaps <- function(index.val, adabtable.df.grp.summary) {
-  ret <- NULL
-  if(index.val < min(adabtable.df.grp.summary$interval)) {
-    ret <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == min(adabtable.df.grp.summary$interval),"val"][[1]]
-  } else if(index.val > max(adabtable.df.grp.summary$interval)) {
-    ret <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == max(adabtable.df.grp.summary$interval),"val"][[1]]
-  } else {
-    differences <- data.frame(intvl = adabtable.df.grp.summary$interval,
-                              diff = adabtable.df.grp.summary$interval - index.val)
-    differences.pos <- differences[differences$diff > 0,]
-    differences.neg <- differences[differences$diff < 0,]
-    start.ind <- differences.neg[which.max(differences.neg$diff), "intvl"]
-    end.ind <- differences.pos[which.min(differences.neg$diff), "intvl"]
-    start.val <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == start.ind,"val"][[1]]
-    end.val <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == end.ind,"val"][[1]]
-    ret <- mean(c(start.val, end.val))
+adapt.ts.vals <- function(adaptable.vals, adaptable.ts, marked.ts.values) {
+  adabtable.df <- data.frame(adaptable.ts = adaptable.ts,
+                             adaptable.vals = adaptable.vals,
+                             interval = marked.ts.values)
+  adabtable.df.grp <- group_by(adabtable.df, adabtable.df$interval)
+  adabtable.df.grp.summary <- summarise(adabtable.df.grp, new.val = mean(adaptable.vals))
+  names(adabtable.df.grp.summary) <- c("interval", "val")
+  '%!in%' <- function(x,y)!('%in%'(x,y))
+  adj.indices <- which(seq(1,length(baseline.ts)) %!in% adabtable.df.grp.summary$interval)
+  
+  fill.in.gaps <- function(index.val, adabtable.df.grp.summary) {
+    ret <- NULL
+    if(index.val < min(adabtable.df.grp.summary$interval)) {
+      ret <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == min(adabtable.df.grp.summary$interval),"val"][[1]]
+    } else if(index.val > max(adabtable.df.grp.summary$interval)) {
+      ret <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == max(adabtable.df.grp.summary$interval),"val"][[1]]
+    } else {
+      differences <- data.frame(intvl = adabtable.df.grp.summary$interval,
+                                diff = adabtable.df.grp.summary$interval - index.val)
+      differences.pos <- differences[differences$diff > 0,]
+      differences.neg <- differences[differences$diff < 0,]
+      start.ind <- differences.neg[which.max(differences.neg$diff), "intvl"]
+      end.ind <- differences.pos[which.min(differences.neg$diff), "intvl"]
+      start.val <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == start.ind,"val"][[1]]
+      end.val <- adabtable.df.grp.summary[adabtable.df.grp.summary$interval == end.ind,"val"][[1]]
+      ret <- mean(c(start.val, end.val))
+    }
+    
+    return(ret)
   }
   
-  return(ret)
+  vals.for.gaps <- unlist(sapply(adj.indices, fill.in.gaps, adabtable.df.grp.summary))
+  extended.grps <- data.frame(interval = adj.indices,
+                              val = vals.for.gaps)
+  adabtable.df.grp.summary.adjusted <- rbind(adabtable.df.grp.summary, extended.grps)
+  adabtable.df.grp.summary.adjusted <- adabtable.df.grp.summary.adjusted[with(adabtable.df.grp.summary.adjusted, order(interval)), ]
+  
+  adapted.ts <- xts(adabtable.df.grp.summary.adjusted$val,
+                    as.POSIXct(baseline.ts,  origin="1970-01-01"))
 }
 
-vals.for.gaps <- unlist(sapply(adj.indices, fill.in.gaps, adabtable.df.grp.summary))
-extended.grps <- data.frame(interval = adj.indices,
-                            val = vals.for.gaps)
-adabtable.df.grp.summary.adjusted <- rbind(adabtable.df.grp.summary, extended.grps)
-adabtable.df.grp.summary.adjusted <- adabtable.df.grp.summary.adjusted[with(adabtable.df.grp.summary.adjusted, order(interval)), ]
+adapted.ts <- lapply(adaptable.vals, adapt.ts.vals, adaptable.ts, marked.ts.values)
 
-adapted.ts <- xts(adabtable.df.grp.summary.adjusted$val,
-                  as.POSIXct(baseline.ts,  origin="1970-01-01"))
+if(length(requests.ts.adapted) < length(cpu.ts.adapted)) {
+  cpu.ts <- adapted.ts$cpu.usage
+} else {
+  latency.ts <- adaptable.vals$latency
+  requests.ts <- adaptable.vals$rps
+  errors.ts <-adaptable.vals$errors
+}
 
-errors.ts.adapted <- errors.ts$ETIMEDOUT
-errors.ts.adapted.vec <- as.vector(coredata(errors.ts.adapted))
-errors.ts.adapted.vec[is.na(errors.ts.adapted.vec)] <- 0
-errors.ts.adapted <- xts(errors.ts.adapted.vec, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
-
-par(mfrow = c(3,1))
-plot(adapted.ts)
-plot(errors.ts.adapted)
+par(mfrow = c(4,1))
+plot(cpu.ts)
+plot(errors.ts)
+plot(latency.ts)
 plot(requests.ts)
 
 #SHOW MEASUREMENTS
