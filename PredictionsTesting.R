@@ -343,38 +343,31 @@ t2.large.price <- sum(t2.micro.num * requests.bottlenecks[4,"cost.per.hour"])
 # 3. Add SVMs models (?) if not too much time https://www.elen.ucl.ac.be/Proceedings/esann/esannpdf/es2010-28.pdf 
 library(influxdbr)
 influx.con <- influx_connection(scheme = "http", host = "34.217.33.66", port = 32589, user = "root", pass = "root")
-show_databases(influx.con)
-ns.raw <- influx_query(influx.con, db = "k8s", query = 'SHOW TAG VALUES FROM uptime WITH KEY=namespace_name', timestamp_format = "s", return_xts = FALSE)
-name.spaces <- ns.raw[[1]]$value
+dbs <- show_databases(influx.con)[[1]]
+db.name <- dbs[which(dbs != "_internal")]
 
-get.pod.names.raw <- function(namespace) {
-  influx_query(influx.con, db = "k8s", query = paste0("SHOW TAG VALUES FROM uptime WITH KEY = pod_name WHERE namespace_name = '",namespace,"'"), timestamp_format = "s", return_xts = FALSE)
-}
-
-get.pod.names <- function(pod.names.raw.table) {
-  pod.names.raw.table$value
-}
-
-pod.names.raw <- sapply(name.spaces, get.pod.names.raw)
-pod.names <- sapply(pod.names.raw, get.pod.names)
-
-metrics.raw <- influx_query(influx.con, db = "k8s", query = 'SHOW MEASUREMENTS', timestamp_format = "s", return_xts = FALSE)
-metrics <- metrics.raw[[1]]$name
-
-get.values.by.pod.name <- function(pod.name, metric, name.space) {
+# Function to get all possible values for a specific metric for a specific node for a specific namespace for a specific pod name
+get.values.by.pod.name <- function(pod.name = "",
+                                   influx.con = NULL,
+                                   db.name = "",
+                                   metric = "",
+                                   node = "",
+                                   name.space = "") {
   time.series.df <- tryCatch(
     { 
       time.series.raw <- influx_select(influx.con,
-                                   "k8s",
-                                   field_keys = "value",
-                                   rp = "default",
-                                   measurement = metric,
-                                   where = paste0("type = 'pod' AND pod_name = '",
-                                                  pod.name,
-                                                  "' AND namespace_name = '",
-                                                  name.space,
-                                                  "'"),
-                                   group_by = "*")
+                                       db.name,
+                                       field_keys = "value",
+                                       rp = "default",
+                                       measurement = metric,
+                                       where = paste0("type = 'pod' AND pod_name = '",
+                                                      pod.name,
+                                                      "' AND namespace_name = '",
+                                                      name.space,
+                                                      "' AND nodename = '",
+                                                      node,
+                                                      "'"),
+                                       group_by = "*")
       time.series <- time.series.raw[[1]][[1]]
       data.frame(pod.name = rep(pod.name, length(time.series)),
                  time = as.numeric(time(time.series)),
@@ -390,29 +383,93 @@ get.values.by.pod.name <- function(pod.name, metric, name.space) {
   return(time.series.df)
 }
 
-get.values.by.namespace <- function(name.space, metric, pod.names) {
-  pod.names.for.ns <- pod.names[name.space][[1]]
-  vals.by.name.space.lst <- lapply(pod.names.for.ns, get.values.by.pod.name, metric, name.space)
+# Function to get all possible values for a specific metric for a specific node for a specific namespace
+get.values.by.namespace <- function(name.space = "",
+                                    influx.con = NULL,
+                                    db.name = "",
+                                    pod.names = NULL,
+                                    metric = "",
+                                    node = "") {
+  if(is.null(pod.names)) {
+    pod.names.raw <- influx_query(influx.con,
+                                  db = db.name,
+                                  query = paste0("SHOW TAG VALUES FROM uptime WITH KEY = pod_name WHERE nodename = '", node, "' AND namespace_name = '", name.space, "'"),
+                                  return_xts = FALSE)
+    pod.names <- pod.names.raw[[1]]$value
+  }
+  
+  vals.by.name.space.lst <- lapply(pod.names, get.values.by.pod.name, influx.con, db.name, metric, node, name.space)
   vals.by.name.space <- do.call("rbind", vals.by.name.space.lst)
   vals.by.name.space$name.space <- rep(name.space, nrow(vals.by.name.space))
   return(vals.by.name.space)
 }
 
-get.values.by.metric <- function(metric, name.spaces, pod.names) {
-  vals.by.metric.lst <- lapply(name.spaces, get.values.by.namespace, metric, pod.names)
+# Function to get all possible values for a specific metric for a specific node
+get.values.by.node <- function(node = "",
+                               influx.con = NULL,
+                               db.name = "",
+                               name.spaces = NULL,
+                               pod.names = NULL,
+                               metric = "") {
+  if(is.null(name.spaces)) {
+    ns.raw <- influx_query(influx.con,
+                           db = db.name,
+                           query = paste0("SHOW TAG VALUES FROM uptime WITH KEY = namespace_name WHERE nodename = '",node,"'"),
+                           return_xts = FALSE)
+    name.spaces <- ns.raw[[1]]$value
+  }
+  
+  vals.by.node.lst <- lapply(name.spaces, get.values.by.namespace, influx.con, db.name, pod.names, metric, node)
+  vals.by.node <- do.call("rbind", vals.by.node.lst)
+  vals.by.node$node <- rep(node, nrow(vals.by.node))
+  return(vals.by.node)
+}
+
+# Function to get all possible values for a specific metric
+get.values.by.metric <- function(metric = "",
+                                 influx.con = NULL,
+                                 db.name = "",
+                                 nodes = NULL,
+                                 name.spaces = NULL,
+                                 pod.names = NULL) {
+  if(is.null(nodes)) {
+    nodes.raw <- influx_query(influx.con,
+                                   db = db.name,
+                                   query = 'SHOW TAG VALUES FROM uptime WITH KEY = nodename',
+                                   return_xts = FALSE)
+    nodes <- nodes.raw[[1]]$value
+  }
+  
+  vals.by.metric.lst <- lapply(nodes, get.values.by.node, influx.con, db.name, name.spaces, pod.names, metric)
   vals.by.metric <- do.call("rbind", vals.by.metric.lst)
-  vals.by.metric$metric<- rep(metric, nrow(vals.by.metric))
+  vals.by.metric$metric <- rep(metric, nrow(vals.by.metric))
   return(vals.by.metric)
 }
 
-get.values <- function(name.spaces, metrics, pod.names) {
-  vals.lst <- lapply(metrics, get.values.by.metric, name.spaces, pod.names)
+# Function to get all possible value from InfluxDB, includes some filters (by default - extracts everything)
+get.values <- function(influx.con = NULL,
+                       db.name = "",
+                       metrics = NULL,
+                       nodes = NULL,
+                       name.spaces = NULL,
+                       pod.names = NULL) {
+  
+  if(is.null(metrics)) {
+    metrics.raw <- influx_query(influx.con,
+                                db = db.name,
+                                query = 'SHOW MEASUREMENTS',
+                                return_xts = FALSE)
+    
+    metrics <- metrics.raw[[1]]$name
+  }
+  
+  vals.lst <- lapply(metrics, get.values.by.metric, influx.con, db.name, nodes, name.spaces, pod.names)
   vals <- do.call("rbind", vals.lst)
   return(vals)
 }
 
 # Get all the metrics data from influxdb: 1, 6, 
-performance.data <- get.values(name.spaces, metrics, pod.names)
+performance.data <- get.values(influx.con, db.name)
 #adjustment for the influxdb machine TODO: delete when it is not necessary anymore
 performance.data$time <- performance.data$time - 3600
 
@@ -421,12 +478,39 @@ library(mongolite)
 library(dplyr)
 mongo.url <- "mongodb://34.217.33.66"
 collection.name <- "kubeserver"
-db.name <- "t2medium"
-conMongo.requests <- mongo(collection.name, db.name, mongo.url)
-if(conMongo.requests$count() > 0) {
-  Requests.data <- conMongo.requests$find()
+db.names <- c("t2medium", "t2small")
+
+extract.data.for.db <- function(db.name, mongo.url, collection.name) {
+  conMongo.requests <- mongo(collection.name, db.name, mongo.url)
+  
+  if(conMongo.requests$count() > 0) {
+    Requests.data <- conMongo.requests$find()
+  }
+  
+  errors.ts.adapted <- Requests.data$aggregate$errors$ETIMEDOUT
+  errors.ts.adapted.vec <- as.vector(coredata(errors.ts.adapted))
+  errors.ts.adapted.vec[is.na(errors.ts.adapted.vec)] <- 0
+  errors.ts <- xts(errors.ts.adapted.vec, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
+  
+  latency.ts.adapted <- Requests.data$aggregate$latency$p99
+  latency.ts.adapted.vec <- as.vector(coredata(latency.ts.adapted))
+  latency.ts.adapted.vec[is.na(latency.ts.adapted.vec)] <- 0
+  latency.ts <- xts(latency.ts.adapted.vec, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
+  
+  requests.ts <- xts(Requests.data$aggregate$rps, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
+  
+  db.data <- list()
+  db.data$type <- db.name
+  db.data$errors.ts <- errors.ts
+  db.data$latency.ts <- latency.ts
+  db.data$requests.ts <- requests.ts
+  
+  return(db.data)
 }
 
+data.for.vm.types <- lapply(db.names, extract.data.for.db, mongo.url, collection.name)
+
+# TODO: add wrapper functions to make graphs for diff. metrics and analyse time series (deriving the model)
 # TODO: add flexible analysis for diff. metrics and pods
 data.for.cpu.usage.rate <- performance.data[performance.data$metric == "cpu/usage_rate", ]
 data.for.cpu.usage.rate.for.pod <- data.for.cpu.usage.rate[data.for.cpu.usage.rate$pod.name == "product-descp-service-79c65844c6-v28dv",]
@@ -434,17 +518,7 @@ data.for.cpu.usage.rate.for.pod <- data.for.cpu.usage.rate[data.for.cpu.usage.ra
 cpu.usage.time <- as.POSIXct(data.for.cpu.usage.rate.for.pod$time, origin="1970-01-01")
 cpu.ts <- xts(data.for.cpu.usage.rate.for.pod$value, cpu.usage.time)
 
-errors.ts.adapted <- Requests.data$aggregate$errors$ETIMEDOUT
-errors.ts.adapted.vec <- as.vector(coredata(errors.ts.adapted))
-errors.ts.adapted.vec[is.na(errors.ts.adapted.vec)] <- 0
-errors.ts <- xts(errors.ts.adapted.vec, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
 
-latency.ts.adapted <- Requests.data$aggregate$latency$p99
-latency.ts.adapted.vec <- as.vector(coredata(latency.ts.adapted))
-latency.ts.adapted.vec[is.na(latency.ts.adapted.vec)] <- 0
-latency.ts <- xts(latency.ts.adapted.vec, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
-
-requests.ts <- xts(Requests.data$aggregate$rps, strptime(Requests.data$aggregate$timestamp, "%Y-%m-%dT%H:%M:%S"))
 
 # Adjusting timelines for different timeseries in order to conduct the analysis
 cpu.ts.adapted <- as.numeric(time(cpu.ts))
