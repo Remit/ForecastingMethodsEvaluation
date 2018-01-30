@@ -411,16 +411,35 @@ get.values.by.node <- function(node = "",
                                name.spaces = NULL,
                                pod.names = NULL,
                                metric = "") {
-  if(is.null(name.spaces)) {
-    ns.raw <- influx_query(influx.con,
-                           db = db.name,
-                           query = paste0("SHOW TAG VALUES FROM uptime WITH KEY = namespace_name WHERE nodename = '",node,"'"),
-                           return_xts = FALSE)
-    name.spaces <- ns.raw[[1]]$value
+  vals.by.node <- NULL
+  if(!grepl("node", metric)) {
+    if(is.null(name.spaces)) {
+      ns.raw <- influx_query(influx.con,
+                             db = db.name,
+                             query = paste0("SHOW TAG VALUES FROM uptime WITH KEY = namespace_name WHERE nodename = '",node,"'"),
+                             return_xts = FALSE)
+      name.spaces <- ns.raw[[1]]$value
+    }
+    
+    vals.by.node.lst <- lapply(name.spaces, get.values.by.namespace, influx.con, db.name, pod.names, metric, node)
+    vals.by.node <- do.call("rbind", vals.by.node.lst)
+  } else {
+    time.series.raw <- influx_select(influx.con,
+                                     db.name,
+                                     field_keys = "value",
+                                     rp = "default",
+                                     measurement = metric,
+                                     where = paste0("type = 'node' AND nodename = '",
+                                                    node,
+                                                    "'"),
+                                     group_by = "*")
+    time.series <- time.series.raw[[1]][[1]]
+    vals.by.node <- data.frame(pod.name = rep("", length(time.series)),
+                 time = as.numeric(time(time.series)),
+                 value = time.series$value)
+    vals.by.node$name.space <- rep("", nrow(vals.by.node))
   }
   
-  vals.by.node.lst <- lapply(name.spaces, get.values.by.namespace, influx.con, db.name, pod.names, metric, node)
-  vals.by.node <- do.call("rbind", vals.by.node.lst)
   vals.by.node$node <- rep(node, nrow(vals.by.node))
   return(vals.by.node)
 }
@@ -468,9 +487,8 @@ get.values <- function(influx.con = NULL,
   return(vals)
 }
 
-# Get all the metrics data from influxdb: 1, 6, 
 performance.data <- get.values(influx.con, db.name)
-#adjustment for the influxdb machine TODO: delete when it is not necessary anymore
+#TODO: delete when it is not necessary anymore [Adjustment for wrong clocks]
 performance.data$time <- performance.data$time - 3600
 
 # Getting requests data from the mongo
