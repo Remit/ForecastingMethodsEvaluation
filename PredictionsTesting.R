@@ -9,6 +9,7 @@ source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/ARIMAForecast
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/ANNForecast.R"))
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/ETSForecast.R"))
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/SSAForecast.R"))
+source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/SVMForecast.R"))
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/ForecastMetric.R"))
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/DataPreprocessing.R"))
 source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/LinearRegressionForecast.R"))
@@ -72,8 +73,12 @@ testing.of.single.timeseries <- function(time.series) {
   lm.end.time <- Sys.time()
   
   ssa.start.time <- Sys.time()
-  ssa.forecast.res = ssa.forecast(example.ts, length(test.ts$series))
+  ssa.forecast.res = ssa.forecast(train.ts, length(test.ts$series))
   ssa.end.time <- Sys.time()
+  
+  svr.start.time <- Sys.time()
+  svr.forecast.res = svr.forecast(train.ts, length(test.ts$series))
+  svr.end.time <- Sys.time()
 
   # Estimating running time of prediction algorithms
   ets.duration <- difftime(ets.end.time, ets.start.time, units = "secs")
@@ -85,6 +90,7 @@ testing.of.single.timeseries <- function(time.series) {
   sarfima.garch.duration <- difftime(sarfima.garch.end.time, sarfima.garch.start.time, units = "secs")
   lm.duration <- difftime(lm.end.time, lm.start.time, units = "secs")
   ssa.duration <- difftime(ssa.end.time, ssa.start.time, units = "secs")
+  svr.duration <- difftime(svr.end.time, svr.start.time, units = "secs")
   
   # Scoring of forecasting models
   actual.vals <- test.ts$series
@@ -110,6 +116,8 @@ testing.of.single.timeseries <- function(time.series) {
   lm.ub.95 <- lm.forecast.res$upper
   ssa.lb.95 <- ssa.forecast.res$lower[,2]
   ssa.ub.95 <- ssa.forecast.res$upper[,2]
+  svr.lb.95 <- svr.forecast.res$lower[,2]
+  svr.ub.95 <- svr.forecast.res$upper[,2]
   
   #ann.score <- interval.score(ann.lb.95, ann.ub.95, actual.vals, alpha)
   ets.score <- interval.score(ets.lb.95, ets.ub.95, actual.vals, alpha)
@@ -121,6 +129,7 @@ testing.of.single.timeseries <- function(time.series) {
   sarfima.garch.score <- interval.score(sarfima.garch.lb.95, sarfima.garch.ub.95, actual.vals, alpha)
   lm.score <- interval.score(lm.lb.95, lm.ub.95, actual.vals, alpha)
   ssa.score <- interval.score(ssa.lb.95, ssa.ub.95, actual.vals, alpha)
+  svr.score <- interval.score(svr.lb.95, svr.ub.95, actual.vals, alpha)
   
   scores <- data.frame(ets.score = ets.score,
                     sarima.score = sarima.score,
@@ -131,6 +140,7 @@ testing.of.single.timeseries <- function(time.series) {
                     sarfima.garch.score = sarfima.garch.score,
                     lm.score = lm.score,
                     ssa.score = ssa.score,
+                    svr.score = svr.score,
                     ets.duration = ets.duration,
                     sarima.duration = sarima.duration,
                     sarimaoa.duration = sarimaoa.duration,
@@ -139,7 +149,8 @@ testing.of.single.timeseries <- function(time.series) {
                     sarfima.duration = sarfima.duration,
                     sarfima.garch.duration = sarfima.garch.duration,
                     lm.duration = lm.duration,
-                    ssa.duration = ssa.duration)
+                    ssa.duration = ssa.duration,
+                    svr.duration = svr.duration)
                     #ann.score = ann.score)
   models.boundaries <- data.frame(ets.lb.95 = ets.lb.95,
                                   ets.ub.95 = ets.ub.95,
@@ -158,7 +169,9 @@ testing.of.single.timeseries <- function(time.series) {
                                   lm.lb.95 = lm.lb.95,
                                   lm.ub.95 = lm.ub.95,
                                   ssa.lb.95 = ssa.lb.95,
-                                  ssa.ub.95 = ssa.ub.95)
+                                  ssa.ub.95 = ssa.ub.95,
+                                  svr.lb.95 = svr.lb.95,
+                                  svr.ub.95 = svr.ub.95)
   res <- list()
   res$scores <- scores
   res$models.boundaries <- models.boundaries
@@ -351,5 +364,4 @@ t2.large.price <- sum(t2.micro.num * requests.bottlenecks[4,"cost.per.hour"])
 
 # IDEAS:
 # 1. Add ARIMA models without regressors to look at the influence of these
-# 2. Add SVMs models (?) if not too much time https://www.elen.ucl.ac.be/Proceedings/esann/esannpdf/es2010-28.pdf 
-
+# 2 . Add SVMs models (?) if not too much time https://www.elen.ucl.ac.be/Proceedings/esann/esannpdf/es2010-28.pdf 

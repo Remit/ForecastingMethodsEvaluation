@@ -1,8 +1,6 @@
 require(forecast)
 require(Rssa)
 
-source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/Facilities.R"))
-
 # Function to derive the forecasts using SSA model
 ssa.forecast <- function(train.timeseries, pred.steps) {
   

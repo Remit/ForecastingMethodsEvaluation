@@ -7,8 +7,6 @@ linear.regression.forecast <- function(example.ts, pred.steps) {
   train.timeseries$end <- example.ts$end - test.set.length.days * 24 * 3600
   train.timeseries$discretion <- example.ts$discretion
   
-  
-  
   test.ts <- list()
   test.ts$series <- window(example.ts$series, as.numeric(example.ts$end - test.set.length.days * 24 * 3600 + 1), as.numeric(example.ts$end))
   test.ts$start <- example.ts$end - test.set.length.days * 24 * 3600 + 1
