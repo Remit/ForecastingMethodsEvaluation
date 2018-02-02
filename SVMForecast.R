@@ -1,6 +1,5 @@
 require(e1071)
 
-source(paste0(dirname(rstudioapi::getSourceEditorContext()$path),"/Facilities.R"))
 days.name <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 # Function to derive the forecasts using SVR model
@@ -46,22 +45,24 @@ svr.forecast <- function(train.timeseries, pred.steps) {
   }
   
   values.for.training <- data.frame(t(apply(indices.df, 1, extract.values.for.boundary, train.timeseries)))
-  # Adjust for additional time information
-  # Day in a week
-  
-  # Weekend?
-  
-  # Hour
-  
-  
+
   name.outcome.variable <- colnames(values.for.training)[ncol(values.for.training)]
   training.formula <- as.formula(paste0(name.outcome.variable," ~ ."))
   svr.model <- svm(training.formula,
                    values.for.training,
                    type = "eps-regression",
-                   gamma = 10,
-                   cost = 100,
-                   epsilon = 0.1)
+                   gamma = 0.9,
+                   cost = 0.3,
+                   epsilon = 0.52)
+  
+  # svr.model.opt = tune(svm,
+  #                      training.formula,
+  #                      data = values.for.training,
+  #                      ranges=list(epsilon = seq(0.5,0.7,0.01),
+  #                                  cost = seq(0.1,1.0,0.1),
+  #                                  gamma = seq(0.1,1.0,0.1)))
+  # 
+  # svr.model <- svr.model.opt$best.model
   
   start.index.test.set <- length(adapted.series) - teaching.window.width + 1
   
@@ -93,31 +94,9 @@ svr.forecast <- function(train.timeseries, pred.steps) {
     i <- i + 1
   }
   
+  # plot(c(adapted.series, predictions))
   
-  
-  
-  ### BEGIN : TO DELETWE
-  plot(c(adapted.series, predictions))
-  
-  svr.model.opt = tune(svm,
-                       training.formula,
-                       data = values.for.training,
-                       ranges=list(epsilon = seq(0,1,0.1),
-                                   cost = 1:100,
-                                   gamma = 1:40))
-  
-  svr.model <- svr.model.opt$best.model
-  pred.start <- train.timeseries$end + train.timeseries$discretion
-  prediction.df <- data.frame(time = seq(1, 1 + pred.steps))
-  # prediction.df <- data.frame(time = as.numeric(seq(from = pred.start,
-  #                                        to = pred.start + (pred.steps - 1) * train.timeseries$discretion,
-  #                                        by = train.timeseries$discretion)))
-  mean.fc <- predict(svr.model, prediction.df)
-  ### END : TO DELETWE
-  
-  
-  
-  sd.fc <- sd(predictions)
+  sd.fc <- sd(svr.model$fitted)
   lb.80 <- predictions - 1.28 * sd.fc
   lb.95 <- predictions - 1.96 * sd.fc
   lower <- data.frame(lb.80 = lb.80,
@@ -136,3 +115,4 @@ svr.forecast <- function(train.timeseries, pred.steps) {
 }
 
 #https://www.kdnuggets.com/2017/03/building-regression-models-support-vector-regression.html
+# for prediction intervals: http://homepage.univie.ac.at/robert.kunst/pres09_prog_turyna_hrdina.pdf 
