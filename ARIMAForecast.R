@@ -78,14 +78,7 @@ create.SARIMA.model.weekly.OutliersAdjusted <- function(request.time.series.list
                                               seasonal = list(order = c(parameters[5], parameters[6], parameters[7]),
                                                               period = arima.period),
                          method = "CSS"))
-  # fit <- fit.tso$fit
-  # xreg <- outliers.effects(fit.tso$outliers, length(request.time.series.list$series))
-  # xreg <- cbind(marked.days, xreg)
-  # xreg.mat <- matrix(marked.days)
-  # row.names(xreg.mat) <- names(marked.days)
-  # colnames(xreg.mat) <- "marked.days"
-  # fit$xreg <- xreg.mat
-  # fit.tso$fit <- fit
+
   return(fit.tso)
 }
 
@@ -101,6 +94,7 @@ create.SARIMA.model.weekly <- function(request.time.series.list, auto = TRUE, pa
   }
 }
 
+# A function that makes the actual forecast depending on whether we have outliers embedded in the model or not.
 forecast.requests <- function(request.time.series.list, ARIMA.model, n.predicted.values, outliers = NULL) {
   start = request.time.series.list$end
   discretion = request.time.series.list$discretion
@@ -176,6 +170,9 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   # - SARFIMA+GARCH - seasonal ARFIMA for forecasting the mean and GARCH for forecasting the variance
   
   resulting.model <- NULL
+  
+  # Measuring the time of parameters selction process start (ARIMA)
+  parameters.selection.start <- Sys.time()
   
   # Preliminary analysis to choose ARIMA parameters
   # I. Getting rid of the seasonality
@@ -310,6 +307,12 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
   acf.seasonality.lags.selected <- c(acf.seasonality.lags[2 * s], acf.seasonality.lags[3 * s], acf.seasonality.lags[4 * s], acf.seasonality.lags[5 * s])
   D <- sum(acf.seasonality.lags.selected > acf.interval.width)
   
+  # Measuring the time of parameters selection process end (ARIMA)
+  parameters.selection.end <- Sys.time()
+  parameters.selection.duration.1 <- difftime(parameters.selection.end, parameters.selection.start, units = "secs")
+  
+  # Measuring the time of model fitting process start (ARIMA)
+  model.fitting.start <- Sys.time()
   # VII. Deriving ARIMA model based on the derived parameters
   ARIMA.model <- NULL
   outliers <- NULL
@@ -321,7 +324,6 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
     ARIMA.model <- ARIMA.model.full$fit
     outliers <- ARIMA.model.full$outliers
     if(is.null(outliers) || (nrow(outliers) == 0)) {
-      print("No outliers detected in the time series. Switching to ordinary SARIMA.")
       ARIMA.model <- create.SARIMA.model.weekly(train.timeseries, FALSE, c(p,d,q,s,P,D,Q))
     }
   } else if(length(grep("SARFIMA", model.type)) > 0) {
@@ -350,8 +352,8 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
     pred.ARFIMA <- predict(ARIMA.model, pred.steps, newxreg = as.matrix(marked.ts.for.prediction))
     sd.ARFIMA <- pred.ARFIMA[[1]]$exactSD
     mean.ARFIMA <- pred.ARFIMA[[1]]$Forecast
-    lower.95 <- mean.ARFIMA - sd.ARFIMA
-    upper.95 <- mean.ARFIMA + sd.ARFIMA
+    lower.95 <- mean.ARFIMA - 1.96 * sd.ARFIMA
+    upper.95 <- mean.ARFIMA + 1.96 * sd.ARFIMA
     ARIMA.forecast <- list(mean = mean.ARFIMA,
                            lower = lower.95,
                            upper = upper.95)
@@ -370,8 +372,14 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
     resulting.model <- SARIMA.forecast.adjusted.by.trend
   }
   
-  # normality - shapiro.test(trend.stationary.ts) --- low p-val - non-normal
+  # Measuring the time of model fitting process end (ARIMA)
+  model.fitting.end <- Sys.time()
+  model.fitting.duration.1 <- difftime(model.fitting.end, model.fitting.start, units = "secs")
   
+  # Measuring the time of parameters selection process start (GARCH)
+  parameters.selection.duration.2 <- difftime(parameters.selection.start, parameters.selection.start, units = "secs")
+  model.fitting.duration.2 <- difftime(model.fitting.start, model.fitting.start, units = "secs")
+  parameters.selection.start <- Sys.time()
   if( length(grep("GARCH", model.type)) > 0 ) { #GARCH model included
     # IX. Fitting GARCH models to the variance if necessary
     residuals.ARIMA <- residuals(ARIMA.model)
@@ -398,6 +406,12 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
         p.garch <- 1 # Otherwise the model won't work
       }
       
+      # Measuring the time of parameters selection process end (GARCH)
+      parameters.selection.end <- Sys.time()
+      parameters.selection.duration.2 <- difftime(parameters.selection.end, parameters.selection.start, units = "secs")
+      
+      # Measuring the time of model fitting process start (GARCH)
+      model.fitting.start <- Sys.time()
       sGARCH.model <- create.GARCH.model.weekly(example.ts, residuals.ARIMA, c(p.garch, q.garch), pred.steps)
       
       # Checking GARCH model whether it captures all the information about variance
@@ -409,7 +423,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
       important.lags <- abs(check.garch.acf.lags) > (fraction.of.interval.width * check.garch.acf.interval.width)
       fraction.of.important.lags <- sum(important.lags) / length(important.lags)
       if(fraction.of.important.lags > 0.05) {
-        print("We need to adjust GARCH model because some information was not captured by it. Source: ACF of standardized residuals.")
+        #print("We need to adjust GARCH model because some information was not captured by it. Source: ACF of standardized residuals.")
       }
       
       check.garch.pacf <- pacf(sGARCH.model@fit$residuals / sGARCH.model@fit$sigma)
@@ -420,7 +434,7 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
       important.lags <- abs(check.garch.pacf.lags) > (fraction.of.interval.width * check.garch.pacf.interval.width)
       fraction.of.important.lags <- sum(important.lags) / length(important.lags)
       if(fraction.of.important.lags > 0.05) {
-        print("We need to adjust GARCH model because some information was not captured by it. Source: PACF of standardized residuals.")
+        #print("We need to adjust GARCH model because some information was not captured by it. Source: PACF of standardized residuals.")
       }
     }
     
@@ -474,6 +488,16 @@ arima.forecast <- function(example.ts, pred.steps, model.type) {
     
     resulting.model <- ARIMA.forecast.adjusted.by.GARCH
   }
+  
+  # Measuring the time of model fitting process end (GARCH)
+  model.fitting.end <- Sys.time()
+  model.fitting.duration.2 <- difftime(model.fitting.end, model.fitting.start, units = "secs")
+  
+  # Summing durations
+  parameters.selection.duration <- parameters.selection.duration.1 + parameters.selection.duration.2
+  model.fitting.duration <- model.fitting.duration.1 + model.fitting.duration.2
+  resulting.model$parameters.selection.duration <- parameters.selection.duration
+  resulting.model$model.fitting.duration <- model.fitting.duration
   
   return(resulting.model)
 }

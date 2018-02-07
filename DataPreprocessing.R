@@ -70,6 +70,3 @@ compute.characteristics <- function(ts.list) {
   chars.df <- as.data.frame(do.call(rbind, chars.list))
   return(chars.df)
 }
-#hclust
-clusters <- hclust(dist(iris[, 3:4]))
-plot(clusters)
