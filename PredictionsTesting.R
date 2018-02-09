@@ -205,8 +205,9 @@ extract.models <- function(list.elem) {
 
 # Construction of the scoring table encompassing scores for all forecasting methods tested with
 # identified best methods for each data set.
-overall.testing <- function(list.of.data) {
-  scores.and.models <- lapply(list.of.data, testing.of.single.timeseries)
+overall.testing <- function(list.of.data, cluster) {
+  scores.and.models <- parLapply(cluster, list.of.data, testing.of.single.timeseries)
+  #scores.and.models <- lapply(list.of.data, testing.of.single.timeseries)
   scores <- lapply(scores.and.models, extract.scores)
   score.table <- as.data.frame(do.call(rbind, scores))
   #score.table$min.score.index <- apply(score.table, 1, which.min)
@@ -218,9 +219,24 @@ overall.testing <- function(list.of.data) {
 }
 
 # Getting scores and prediction intervals for the time series data
+no_cores <- detectCores() - 1
+cl <- makeCluster(no_cores)
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+clusterEvalQ(cl, {
+  source("ARIMAForecast.R")
+  source("ETSForecast.R")
+  source("SSAForecast.R")
+  source("SVMForecast.R")
+  source("ForecastMetric.R")
+  source("DataPreprocessing.R")
+  source("LinearRegressionForecast.R")
+  }) 
+
 data.raw <- read.csv2(file = file.path, header = F, sep = ",", stringsAsFactors = F)
 lst <- ts.preprocessing.matrix.Instana(data.raw)
-scores.and.models <- overall.testing(lst)#lst[1:10]
+scores.and.models <- overall.testing(lst, cl)#lst[1:10]
+stopCluster(cl)
 
 # TODO: introduce parallelization to the code so that it could evaluate several models at the same time
 # no_cores <- detectCores() - 1
