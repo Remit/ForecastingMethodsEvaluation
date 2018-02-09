@@ -238,8 +238,9 @@ lst <- ts.preprocessing.matrix.Instana(data.raw)
 scores.and.models <- overall.testing(lst, cl)#lst[1:10]
 stopCluster(cl)
 
-# TODO: introduce parallelization to the code so that it could evaluate several models at the same time
-# no_cores <- detectCores() - 1
-# cl <- makeCluster(no_cores)
-#parLapply(cl, 2:4,        function(exponent)     2^exponent)
-# http://gforge.se/2015/02/how-to-go-parallel-in-r-basics-tips/
+# Input - filename
+# Interface for to use the forecasting function and store the results in the InfluxDB databse
+library(influxdbr)
+influx.con <- influx_connection(scheme = "http", host = "localhost", port = 8086)
+db.name <- "ForecastTEST" # TODO: mechanism to use the credentials to create the database
+create_database(influx.con, db.name)
