@@ -177,10 +177,8 @@ extract.models <- function(list.elem) {
 # identified best methods for each data set.
 overall.testing <- function(list.of.data, cluster) {
   scores.and.models <- parLapply(cluster, list.of.data, testing.of.single.timeseries)
-  #scores.and.models <- lapply(list.of.data, testing.of.single.timeseries)
   scores <- lapply(scores.and.models, extract.scores)
   score.table <- as.data.frame(do.call(rbind, scores))
-  #score.table$min.score.index <- apply(score.table, 1, which.min)
   models.boundaries <- lapply(scores.and.models, extract.models)
   res <- list()
   res$models.boundaries <- models.boundaries

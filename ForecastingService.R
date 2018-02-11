@@ -38,8 +38,9 @@ if(length(target) == 0) {
                                    nchar(type.of.processing.prefix) + 1,
                                    nchar(processing.type))
       
-      if(processing.type == "BATCH") {
-        
+      if((processing.type != "BATCH") && (processing.type != "SINGLE")) {
+        print("Inappropriate value for 'type' command line parameter. Appropriate values are: 'SINGLE', 'BATCH'.")
+      } else {
         if(!grepl(".csv", target)) {
           print("Specified file is not of type 'csv'. Please, provide the correct file.")
         } else {
@@ -61,17 +62,22 @@ if(length(target) == 0) {
           data.raw <- read.csv2(file = target, header = F, sep = ",", stringsAsFactors = F)
           lst <- ts.preprocessing.matrix.Instana(data.raw)
           scores.and.models <- overall.testing(lst[11], cl)#lst[1:10]
-          save(scores.and.models, file = "ScoresAndModels.RData")
           stopCluster(cl)
+          
+          if(processing.type == "BATCH") {
+            save(scores.and.models, file = "ScoresAndModels.RData")
+          } else if(processing.type == "SINGLE") {
+            # Used by service to process and store the results in InfluxDB
+            library(influxdbr)
+            influx.con <- influx_connection(scheme = "http", host = "localhost", port = 8086)
+            db.name <- "ForecastTEST" # TODO: mechanism to use the credentials to create the database
+            create_database(influx.con, db.name)
+          }
         }
-      } else if(processing.type == "SINGLE") {
-        
-      } else {
-        print("Inappropriate value for 'type' command line parameter. Appropriate values are: 'SINGLE', 'BATCH'.")
       }
     }
   }
 }
 
-
+# Installation (external) - https://stackoverflow.com/questions/1474081/how-do-i-install-an-r-package-from-source 
 # https://deanattali.com/2015/05/09/setup-rstudio-shiny-server-digital-ocean/
