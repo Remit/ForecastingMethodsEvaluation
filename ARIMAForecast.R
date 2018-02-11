@@ -175,6 +175,8 @@ create.GARCH.model.weekly <- function(train.timeseries, arima.residuals, coefs, 
 
 # Function to derive the forecasts using the ANN models
 arima.forecast <- function(example.ts, pred.steps, model.type) {
+  Sys.setlocale("LC_TIME", "English") # This is very important in case the computer locale for time is different from English - it is needed for weekends marking. TODO: workaround?
+  
   # Supported time series models:
   # - SARIMA - single SARIMA model
   # - SARIMA+GARCH - SARIMA for forecasting the mean and GARCH for forecasting the variance

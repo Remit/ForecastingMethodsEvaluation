@@ -1,5 +1,5 @@
-library(reshape2)
-require(imputeTS)
+suppressMessages(library(reshape2))
+suppressMessages(require(imputeTS))
 
 # A function to preprocess a timeseries row in order to introduce NAs instead of negative values
 ts.preprocessing <- function(row) {
