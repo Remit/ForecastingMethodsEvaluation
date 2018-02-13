@@ -110,6 +110,7 @@ svr.forecast <- function(train.timeseries, pred.steps) {
   svr.forecast <- list()
   svr.forecast$lower <- lower
   svr.forecast$upper <- upper
+  svr.forecast$mean <- predictions
   
   return(svr.forecast)
 }

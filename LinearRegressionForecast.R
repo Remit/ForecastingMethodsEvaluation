@@ -19,8 +19,8 @@ linear.regression.forecast <- function(example.ts, pred.steps) {
   trend.predictions <- predict.lm(ts.trend, data.frame(time = seq(as.numeric(test.ts$start), as.numeric(test.ts$end), 3600)), se.fit = TRUE)
   resulting.model <- list()
   resulting.model$mean <- trend.predictions$fit
-  resulting.model$lower <- resulting.model$mean - trend.predictions$se.fit
-  resulting.model$upper <- resulting.model$mean + trend.predictions$se.fit
+  resulting.model$lower <- resulting.model$mean - 1.96 * trend.predictions$se.fit
+  resulting.model$upper <- resulting.model$mean + 1.96 * trend.predictions$se.fit
   
   return(resulting.model)
 }

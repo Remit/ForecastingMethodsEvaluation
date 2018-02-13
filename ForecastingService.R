@@ -2,6 +2,7 @@
 # Execution format for the command line
 # - Single File Mode: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=SINGLE --client=client1 [--predsteps=20]
 # - Batch Mode [with parallelization]: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=BATCH
+# Real example: Rscript ForecastingService.R --target=/home/remit/dissCloud/Instana/data/metrics.csv -type=SINGLE --client=client1 --predsteps=10
 cmd.args <- commandArgs()
 script.file.prefix <- "--file="
 full.script.path <- cmd.args[which(grepl(script.file.prefix, cmd.args))]

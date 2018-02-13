@@ -56,6 +56,7 @@ ssa.forecast <- function(train.timeseries, pred.steps) {
   upper <- data.frame(ub.80 = ub.80,
                       ub.95 = ub.95)
   
+  ssa.forecast$mean <- mean.fc
   ssa.forecast$lower <- lower
   ssa.forecast$upper <- upper
   

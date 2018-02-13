@@ -11,7 +11,7 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   test.ts <- list()
   pred.test.interval <- 0
   if(prediction.steps.num >= 0) {
-    pred.test.interval <- prediction.steps.num * 3600
+    pred.test.interval <- (prediction.steps.num + 1) * 3600
   } else {
     test.set.length.days <- 7
     pred.test.interval <- test.set.length.days * 24 * 3600
@@ -44,13 +44,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   ets.duration <- difftime(ets.end.time, ets.start.time, units = "secs")
   ets.lb.95 <- ets.forecast.res$lower[,2]
   ets.ub.95 <- ets.forecast.res$upper[,2]
+  ets.point <- ets.forecast.res$mean
   ets.score <- interval.score(ets.lb.95, ets.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), ets.lb.95)
     ub.95.ext <- c(rep(0, train.length), ets.ub.95)
-    # point.ext <- c(rep(0, train.length), ets.point)
+    point.ext <- c(rep(0, train.length), ets.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "ETS")
@@ -62,14 +64,16 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   sarima.duration <- difftime(sarima.end.time, sarima.start.time, units = "secs")
   sarima.lb.95 <- sarima.forecast.res$lower[,2]
   sarima.ub.95 <- sarima.forecast.res$upper[,2]
+  sarima.point <- sarima.forecast.res$mean
   sarima.score <- interval.score(sarima.lb.95, sarima.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarima.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarima.ub.95)
-    # point.ext <- c(rep(0, train.length), sarima.point)
+    point.ext <- c(rep(0, train.length), sarima.point)
     df <- data.frame(lb = lb.95.ext,
-                          ub = ub.95.ext,
-                          av = actual.vals.ext)
+                     ub = ub.95.ext,
+                     pf = point.ext,
+                     av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "SARIMA")
   }
@@ -80,13 +84,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   sarimaoa.duration <- difftime(sarimaoa.end.time, sarimaoa.start.time, units = "secs")
   sarimaoa.lb.95 <- sarimaoa.forecast.res$lower[,2]
   sarimaoa.ub.95 <- sarimaoa.forecast.res$upper[,2]
+  sarimaoa.point <- sarimaoa.forecast.res$mean
   sarimaoa.score <- interval.score(sarimaoa.lb.95, sarimaoa.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarimaoa.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarimaoa.ub.95)
-    # point.ext <- c(rep(0, train.length), sarimaoa.point)
+    point.ext <- c(rep(0, train.length), sarimaoa.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "SARIMAOA")
@@ -98,13 +104,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   sarima.garch.duration <- difftime(sarima.garch.end.time, sarima.garch.start.time, units = "secs")
   sarima.garch.lb.95 <- sarima.garch.forecast.res$lower[,2]
   sarima.garch.ub.95 <- sarima.garch.forecast.res$upper[,2]
+  sarima.garch.point <- sarima.garch.forecast.res$mean
   sarima.garch.score <- interval.score(sarima.garch.lb.95, sarima.garch.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarima.garch.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarima.garch.ub.95)
-    # point.ext <- c(rep(0, train.length), sarima.garch.point)
+    point.ext <- c(rep(0, train.length), sarima.garch.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "SARIMA.GARCH")
@@ -116,13 +124,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   sarimaoa.garch.duration <- difftime(sarimaoa.garch.end.time, sarimaoa.garch.start.time, units = "secs")
   sarimaoa.garch.lb.95 <- sarimaoa.garch.forecast.res$lower[,2]
   sarimaoa.garch.ub.95 <- sarimaoa.garch.forecast.res$upper[,2]
+  sarimaoa.garch.point <- sarimaoa.garch.forecast.res$mean
   sarimaoa.garch.score <- interval.score(sarimaoa.garch.lb.95, sarimaoa.garch.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarimaoa.garch.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarimaoa.garch.ub.95)
-    # point.ext <- c(rep(0, train.length), sarima.garch.point)
+    point.ext <- c(rep(0, train.length), sarimaoa.garch.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "SARIMAOA.GARCH")
@@ -134,13 +144,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   sarfima.duration <- difftime(sarfima.end.time, sarfima.start.time, units = "secs")
   sarfima.lb.95 <- sarfima.forecast.res$lower
   sarfima.ub.95 <- sarfima.forecast.res$upper
+  sarfima.point <- sarfima.forecast.res$mean
   sarfima.score <- interval.score(sarfima.lb.95, sarfima.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarfima.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarfima.ub.95)
-    # point.ext <- c(rep(0, train.length), sarfima.point)
+    point.ext <- c(rep(0, train.length), sarfima.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "SARFIMA")
@@ -152,13 +164,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   sarfima.garch.duration <- difftime(sarfima.garch.end.time, sarfima.garch.start.time, units = "secs")
   sarfima.garch.lb.95 <- sarfima.garch.forecast.res$lower
   sarfima.garch.ub.95 <- sarfima.garch.forecast.res$upper
+  sarfima.garch.point <- sarfima.garch.forecast.res$mean
   sarfima.garch.score <- interval.score(sarfima.garch.lb.95, sarfima.garch.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarfima.garch.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarfima.garch.ub.95)
-    # point.ext <- c(rep(0, train.length), sarfima.garch.point)
+    point.ext <- c(rep(0, train.length), sarfima.garch.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "SARFIMA.GARCH")
@@ -170,13 +184,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   lm.duration <- difftime(lm.end.time, lm.start.time, units = "secs")
   lm.lb.95 <- lm.forecast.res$lower
   lm.ub.95 <- lm.forecast.res$upper
+  lm.point <- lm.forecast.res$mean
   lm.score <- interval.score(lm.lb.95, lm.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), lm.lb.95)
     ub.95.ext <- c(rep(0, train.length), lm.ub.95)
-    # point.ext <- c(rep(0, train.length), lm.point)
+    point.ext <- c(rep(0, train.length), lm.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "LM")
@@ -188,13 +204,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   ssa.duration <- difftime(ssa.end.time, ssa.start.time, units = "secs")
   ssa.lb.95 <- ssa.forecast.res$lower[,2]
   ssa.ub.95 <- ssa.forecast.res$upper[,2]
+  ssa.point <- ssa.forecast.res$mean
   ssa.score <- interval.score(ssa.lb.95, ssa.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), ssa.lb.95)
     ub.95.ext <- c(rep(0, train.length), ssa.ub.95)
-    # point.ext <- c(rep(0, train.length), ssa.point)
+    point.ext <- c(rep(0, train.length), ssa.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "SSA")
@@ -206,13 +224,15 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   svr.duration <- difftime(svr.end.time, svr.start.time, units = "secs")
   svr.lb.95 <- svr.forecast.res$lower[,2]
   svr.ub.95 <- svr.forecast.res$upper[,2]
+  svr.point <- svr.forecast.res$mean
   svr.score <- interval.score(svr.lb.95, svr.ub.95, actual.vals, alpha)
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), svr.lb.95)
     ub.95.ext <- c(rep(0, train.length), svr.ub.95)
-    # point.ext <- c(rep(0, train.length), svr.point)
+    point.ext <- c(rep(0, train.length), svr.point)
     df <- data.frame(lb = lb.95.ext,
                      ub = ub.95.ext,
+                     pf = point.ext,
                      av = actual.vals.ext)
     xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
     influx_write(xts.obj, influx.con, db.name, "SVR")
