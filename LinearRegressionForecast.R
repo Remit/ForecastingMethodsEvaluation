@@ -1,15 +1,14 @@
 # Function to derive the forecasts using the simple linear model
 linear.regression.forecast <- function(example.ts, pred.steps) {
-  test.set.length.days <- 7
   train.timeseries <- list()
-  train.timeseries$series <- window(example.ts$series, as.numeric(example.ts$start), as.numeric(example.ts$end - test.set.length.days * 24 * 3600))
+  train.timeseries$series <- window(example.ts$series, as.numeric(example.ts$start), as.numeric(example.ts$end - pred.steps * 3600))
   train.timeseries$start <- example.ts$start
-  train.timeseries$end <- example.ts$end - test.set.length.days * 24 * 3600
+  train.timeseries$end <- example.ts$end - pred.steps * 3600
   train.timeseries$discretion <- example.ts$discretion
   
   test.ts <- list()
-  test.ts$series <- window(example.ts$series, as.numeric(example.ts$end - test.set.length.days * 24 * 3600 + 1), as.numeric(example.ts$end))
-  test.ts$start <- example.ts$end - test.set.length.days * 24 * 3600 + 1
+  test.ts$series <- window(example.ts$series, as.numeric(example.ts$end - pred.steps * 3600 + 3600), as.numeric(example.ts$end))
+  test.ts$start <- example.ts$end - pred.steps * 3600 + 3600
   test.ts$end <- example.ts$end
   test.ts$discretion <- example.ts$discretion
   

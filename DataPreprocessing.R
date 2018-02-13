@@ -2,7 +2,7 @@ suppressMessages(library(reshape2))
 suppressMessages(require(imputeTS))
 
 # A function to preprocess a timeseries row in order to introduce NAs instead of negative values
-ts.preprocessing <- function(row) {
+ts.preprocessing <- function(row, start.time) {
   num.row = as.numeric(row)
   num.row.NA = replace(num.row, num.row == -1, NA)
   if(length(num.row) - sum(is.na(num.row.NA)) >= 2) {
@@ -11,9 +11,9 @@ ts.preprocessing <- function(row) {
     # In the worst case, replace NA value with a non-NA value from the same time series
     num.row.interpolated = na.replace(num.row.NA, fill = num.row.NA[which(!is.na(num.row.NA))[[1]]])
   }
-  end   <- as.POSIXct("2017-11-06 10:41:23", "%Y-%m-%d %H:%M:%S")
-  start <- end - length(num.row) * 60 * 60 + 3600
-  row.ts <- ts(num.row.interpolated, start = as.numeric(start), end = as.numeric(end), deltat = 3600)
+  
+  end   <- start.time + length(num.row) * 3600
+  row.ts <- ts(num.row.interpolated, start = as.numeric(start.time), end = as.numeric(end), deltat = 3600)
   
   # Getting rid of time series with only zero values
   if(sum((row.ts < -1e-03) | (row.ts > 1e-03)) == 0) {
@@ -24,8 +24,8 @@ ts.preprocessing <- function(row) {
 }
 
 # A function to preprocess the whole matrix of the data
-ts.preprocessing.matrix.Instana <- function(data.raw) {
-  lst = apply(data.raw, 1, ts.preprocessing)
+ts.preprocessing.matrix <- function(data.raw, start.time) {
+  lst = apply(data.raw, 1, ts.preprocessing, start.time)
   i <- 1
   lst.filtered <- list()
   while(i <= length(lst)) {

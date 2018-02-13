@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Execution format for the command line
-# - Single File Mode: Rscript ForecastingService.R --target=data.csv --type=FILE
-# - Batch Mode [with parallelization]: Rscript ForecastingService.R --target=/data --type=BATCH
+# - Single File Mode: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=SINGLE --client=client1 [--predsteps=20]
+# - Batch Mode [with parallelization]: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=BATCH
 cmd.args <- commandArgs()
 script.file.prefix <- "--file="
 full.script.path <- cmd.args[which(grepl(script.file.prefix, cmd.args))]
@@ -44,8 +44,54 @@ if(length(target) == 0) {
         if(!grepl(".csv", target)) {
           print("Specified file is not of type 'csv'. Please, provide the correct file.")
         } else {
+          predsteps.prefix <- "--predsteps="
+          predsteps.num <- -1
+          predsteps <- cmd.args[which(grepl(predsteps.prefix, cmd.args))]
+          if(length(predsteps) > 0) {
+            # Number of prediction steps (in hours!)
+            predsteps.num <- as.numeric(substring(predsteps,
+                                                  nchar(predsteps.prefix) + 1,
+                                                  nchar(predsteps)))
+          }
+          
+          starttime.prefix <- "--starttime="
+          start.time <- as.POSIXct(Sys.time())
+          starttime <- cmd.args[which(grepl(starttime.prefix, cmd.args))]
+          if(length(starttime) > 0) {
+            # Number of prediction steps (in hours!)
+            start.time <- as.POSIXct(as.numeric(substring(starttime,
+                                                  nchar(starttime.prefix) + 1,
+                                                  nchar(starttime))), origin="1970-01-01")
+          }
+          
+          # Creating connection to InfluxDB for time series in case of SINGLE type of processing
+          influx.con <- NULL
+          db.name <- ""
+          if(processing.type == "SINGLE") {
+            client.prefix <- "--client="
+            
+            client <- cmd.args[which(grepl(client.prefix, cmd.args))]
+            if(length(client) == 0) {
+              print("No 'client' command line parameter found. Please, specify the '--client' parameter with an appropriate value.")
+            } else {
+              client <- substring(client,
+                                  nchar(client.prefix) + 1,
+                                  nchar(client))
+              # Used by service to process and store the results in InfluxDB
+              library(influxdbr)
+              influx.con <- influx_connection(scheme = "http", host = "localhost", port = 8086)
+              db.name <- client
+              if(!grepl(client, show_databases(influx.con))) {
+                create_database(influx.con, db.name)
+              }
+            }
+          }
+          
           suppressMessages(library(parallel))
           source("DataPreprocessing.R")
+          data.raw <- read.csv2(file = target, header = F, sep = ",", stringsAsFactors = F)
+          lst <- ts.preprocessing.matrix(data.raw, start.time)
+          
           no_cores <- detectCores() - 1
           cl <- makeCluster(no_cores)
           
@@ -57,21 +103,25 @@ if(length(target) == 0) {
             source("ForecastMetric.R")
             source("DataPreprocessing.R")
             source("LinearRegressionForecast.R")
+            suppressMessages(library(imputeTS))
+            suppressMessages(library(ggplot2))
+            suppressMessages(library(tseries))
+            suppressMessages(library(forecast))
+            suppressMessages(library(xts))
+            suppressMessages(library(influxdbr))
           }) 
           
-          data.raw <- read.csv2(file = target, header = F, sep = ",", stringsAsFactors = F)
-          lst <- ts.preprocessing.matrix.Instana(data.raw)
-          scores.and.models <- overall.testing(lst[11], cl)#lst[1:10]
+          # Main Computation
+          scores.and.models <- overall.testing(lst[11],
+                                               cl,
+                                               start.time,
+                                               predsteps.num,
+                                               influx.con,
+                                               db.name)#lst[1:10]
           stopCluster(cl)
           
           if(processing.type == "BATCH") {
             save(scores.and.models, file = "ScoresAndModels.RData")
-          } else if(processing.type == "SINGLE") {
-            # Used by service to process and store the results in InfluxDB
-            library(influxdbr)
-            influx.con <- influx_connection(scheme = "http", host = "localhost", port = 8086)
-            db.name <- "ForecastTEST" # TODO: mechanism to use the credentials to create the database
-            create_database(influx.con, db.name)
           }
         }
       }
