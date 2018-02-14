@@ -1,8 +1,8 @@
 #!/usr/bin/env Rscript
 # Execution format for the command line
-# - Single File Mode: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=SINGLE --client=client1 [--predsteps=20]
+# - Single File Mode: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=SINGLE --client=client1 [--predsteps=20] --dbhost=localhost:8086 --dbuser=admin --dbpassword=admin
 # - Batch Mode [with parallelization]: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=BATCH
-# Real example: Rscript ForecastingService.R --target=/home/remit/dissCloud/Instana/data/metrics.csv -type=SINGLE --client=client1 --predsteps=10
+# Real example: Rscript ForecastingService.R --target=/home/remit/dissCloud/Instana/data/metrics.csv --type=SINGLE --client=client1 --predsteps=10
 cmd.args <- commandArgs()
 script.file.prefix <- "--file="
 full.script.path <- cmd.args[which(grepl(script.file.prefix, cmd.args))]
@@ -79,11 +79,51 @@ if(length(target) == 0) {
                                   nchar(client.prefix) + 1,
                                   nchar(client))
               # Used by service to process and store the results in InfluxDB
-              library(influxdbr)
-              influx.con <- influx_connection(scheme = "http", host = "localhost", port = 8086)
-              db.name <- client
-              if(!grepl(client, show_databases(influx.con))) {
-                create_database(influx.con, db.name)
+              dbhost.prefix <- "--dbhost="
+              
+              dbhost <- cmd.args[which(grepl(dbhost.prefix, cmd.args))]
+              if(length(dbhost) == 0) {
+                print("No 'dbhost' command line parameter found. Please, specify the '--dbhost' parameter with an appropriate value.")
+              } else {
+                dbhost <- substring(dbhost,
+                                    nchar(dbhost.prefix) + 1,
+                                    nchar(dbhost))
+                dbhost.parts <- strsplit(dbhost, split=':', fixed=TRUE)[[1]]
+                if(length(dbhost.parts) != 2) {
+                  print("'dbhost' command line parameter is incorrect. The format should be: <IP ADDRESS>:<PORT>.")
+                } else {
+                  host <- dbhost.parts[1]
+                  port <- as.numeric(dbhost.parts[2])
+                  
+                  # Getting user and password
+                  dbuser.prefix <- "--dbuser="
+                  dbpassword.prefix <- "--dbpassword="
+                  
+                  dbuser <- cmd.args[which(grepl(dbuser.prefix, cmd.args))]
+                  dbpassword <- cmd.args[which(grepl(dbpassword.prefix, cmd.args))]
+                  
+                  user <- "root"
+                  password <- "root"
+                  if((length(dbuser) != 0) && (length(dbpassword) != 0)) {
+                    user <- substring(dbuser,
+                                      nchar(dbuser.prefix) + 1,
+                                      nchar(dbuser))
+                    password <- substring(dbpassword,
+                                          nchar(dbpassword.prefix) + 1,
+                                          nchar(dbpassword))
+                  }
+                  
+                  library(influxdbr)
+                  influx.con <- influx_connection(scheme = "http",
+                                                  host = host,
+                                                  port = port,
+                                                  user = user,
+                                                  pass = password)
+                  db.name <- client
+                  if(!grepl(client, show_databases(influx.con))) {
+                    create_database(influx.con, db.name)
+                  }
+                }
               }
             }
           }
@@ -113,7 +153,7 @@ if(length(target) == 0) {
           }) 
           
           # Main Computation
-          scores.and.models <- overall.testing(lst[11],
+          scores.and.models <- overall.testing(lst,
                                                cl,
                                                start.time,
                                                predsteps.num,

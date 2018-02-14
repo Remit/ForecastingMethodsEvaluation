@@ -2,6 +2,7 @@ require(forecast)
 require(tseries)
 require(rugarch)
 require(tsoutliers)
+require(arfima)
 
 is.weekend <- function(wkd) {
   if((wkd == "Saturday") || (wkd == "Sunday")) {
