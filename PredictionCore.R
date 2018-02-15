@@ -1,5 +1,42 @@
+# Functions to create the insertion/update JSON sequences
+create.JSON.sequence.for.method <- function(method.name, score, duration) {
+  JSON.string <- paste0('"',
+                        method.name,
+                        '" : { "score" : ',
+                        score,
+                        ', "duration" : ',
+                        duration,
+                        '}')
+  return(JSON.string)
+}
+
+create.JSON.sequence.for.insertion <- function(client, method.name, score, duration) {
+  JSON.string.method <- create.JSON.sequence.for.method(method.name, score, duration)
+  JSON.string <- paste0('{"username" : "',
+                        client,
+                        '", ',
+                        JSON.string.method,
+                        '}')
+  return(JSON.string)
+}
+
+create.JSON.sequence.for.update.adr <- function(client) {
+  JSON.string <- paste0('{"username" : "',
+                        client,
+                        '"}')
+  return(JSON.string)
+}
+
+create.JSON.sequence.for.update.content <- function(client, method.name, score, duration) {
+  JSON.string.method <- create.JSON.sequence.for.method(method.name, score, duration)
+  JSON.string <- paste0('{"$set":{',
+                        JSON.string.method,
+                        '}}')
+  return(JSON.string)
+}
+
 # Forecast model creation, forecasting and scoring for the single time series.
-testing.of.single.timeseries <- function(time.series, start.time, prediction.steps.num, influx.con, db.name) {
+testing.of.single.timeseries <- function(time.series, start.time, prediction.steps.num, influx.con, db.name, mongo.con) {
   example.ts <- list()
   example.ts$series <- time.series
   example.ts$start <- start.time
@@ -33,10 +70,27 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   train.length <- length(train.ts$series)
   actual.vals.ext <- c(as.vector(train.ts$series), as.vector(test.ts$series))
   timeline.ext <- c(as.vector(time(train.ts$series)), as.vector(time(test.ts$series)))
+  
+  # Cleaning the database from previous entries for this user
+  if(!is.null(mongo.con)) {
+    removal.str <- paste0('{"username" : "', db.name, '"}')
+    mongo.con$remove(removal.str)
+  }
 
+  ets.name <- "ETS"
+  sarima.name <- "SARIMA"
+  sarimaoa.name <- "SOAARIMA"
+  sarima.garch.name <- "SARIMA+GARCH"
+  sarimaoa.garch.name <- "SOAARIMA+GARCH"
+  sarfima.name <- "SARFIMA"
+  sarfima.garch.name <-"SARFIMA+GARCH"
+  lm.name <- "LM"
+  ssa.name <- "SSA"
+  svr.name <- "SVR"
+  
+  origin.time <- "1970-01-01"
+  
   # Deriving different forecasting models and forecasts with prediction intervals
-  # TODO:
-  # 2. adding point forecasts
   
   ets.start.time <- Sys.time()
   ets.forecast.res = ets.forecast(train.ts$series, length(test.ts$series))
@@ -46,6 +100,10 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   ets.ub.95 <- ets.forecast.res$upper[,2]
   ets.point <- ets.forecast.res$mean
   ets.score <- interval.score(ets.lb.95, ets.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    insertion.string <- create.JSON.sequence.for.insertion(db.name, ets.name, ets.score, ets.duration)
+    mongo.con$insert(insertion.string)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), ets.lb.95)
     ub.95.ext <- c(rep(0, train.length), ets.ub.95)
@@ -54,18 +112,23 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "ETS")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, ets.name)
   }
   
   sarima.start.time <- Sys.time()
-  sarima.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARIMA")
+  sarima.forecast.res = arima.forecast(example.ts, length(test.ts$series), sarima.name)
   sarima.end.time <- Sys.time()
   sarima.duration <- difftime(sarima.end.time, sarima.start.time, units = "secs")
   sarima.lb.95 <- sarima.forecast.res$lower[,2]
   sarima.ub.95 <- sarima.forecast.res$upper[,2]
   sarima.point <- sarima.forecast.res$mean
   sarima.score <- interval.score(sarima.lb.95, sarima.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, sarima.name, sarima.score, sarima.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarima.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarima.ub.95)
@@ -74,18 +137,23 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "SARIMA")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, sarima.name)
   }
   
   sarimaoa.start.time <- Sys.time()
-  sarimaoa.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SOAARIMA")
+  sarimaoa.forecast.res = arima.forecast(example.ts, length(test.ts$series), sarimaoa.name)
   sarimaoa.end.time <- Sys.time()
   sarimaoa.duration <- difftime(sarimaoa.end.time, sarimaoa.start.time, units = "secs")
   sarimaoa.lb.95 <- sarimaoa.forecast.res$lower[,2]
   sarimaoa.ub.95 <- sarimaoa.forecast.res$upper[,2]
   sarimaoa.point <- sarimaoa.forecast.res$mean
   sarimaoa.score <- interval.score(sarimaoa.lb.95, sarimaoa.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, sarimaoa.name, sarimaoa.score, sarimaoa.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarimaoa.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarimaoa.ub.95)
@@ -94,18 +162,23 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "SARIMAOA")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, sarimaoa.name)
   }
   
   sarima.garch.start.time <- Sys.time()
-  sarima.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARIMA+GARCH")
+  sarima.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), sarima.garch.name)
   sarima.garch.end.time <- Sys.time()
   sarima.garch.duration <- difftime(sarima.garch.end.time, sarima.garch.start.time, units = "secs")
   sarima.garch.lb.95 <- sarima.garch.forecast.res$lower[,2]
   sarima.garch.ub.95 <- sarima.garch.forecast.res$upper[,2]
   sarima.garch.point <- sarima.garch.forecast.res$mean
   sarima.garch.score <- interval.score(sarima.garch.lb.95, sarima.garch.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, sarima.garch.name, sarima.garch.score, sarima.garch.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarima.garch.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarima.garch.ub.95)
@@ -114,18 +187,23 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "SARIMA.GARCH")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, sarima.garch.name)
   }
   
   sarimaoa.garch.start.time <- Sys.time()
-  sarimaoa.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SOAARIMA+GARCH")
+  sarimaoa.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), sarimaoa.garch.name)
   sarimaoa.garch.end.time <- Sys.time()
   sarimaoa.garch.duration <- difftime(sarimaoa.garch.end.time, sarimaoa.garch.start.time, units = "secs")
   sarimaoa.garch.lb.95 <- sarimaoa.garch.forecast.res$lower[,2]
   sarimaoa.garch.ub.95 <- sarimaoa.garch.forecast.res$upper[,2]
   sarimaoa.garch.point <- sarimaoa.garch.forecast.res$mean
   sarimaoa.garch.score <- interval.score(sarimaoa.garch.lb.95, sarimaoa.garch.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, sarimaoa.garch.name, sarimaoa.garch.score, sarimaoa.garch.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarimaoa.garch.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarimaoa.garch.ub.95)
@@ -134,18 +212,23 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "SARIMAOA.GARCH")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, sarimaoa.garch.name)
   }
   
   sarfima.start.time <- Sys.time()
-  sarfima.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARFIMA")
+  sarfima.forecast.res = arima.forecast(example.ts, length(test.ts$series), sarfima.name)
   sarfima.end.time <- Sys.time()
   sarfima.duration <- difftime(sarfima.end.time, sarfima.start.time, units = "secs")
   sarfima.lb.95 <- sarfima.forecast.res$lower
   sarfima.ub.95 <- sarfima.forecast.res$upper
   sarfima.point <- sarfima.forecast.res$mean
   sarfima.score <- interval.score(sarfima.lb.95, sarfima.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, sarfima.name, sarfima.score, sarfima.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarfima.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarfima.ub.95)
@@ -154,18 +237,23 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "SARFIMA")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, sarfima.name)
   }
   
   sarfima.garch.start.time <- Sys.time()
-  sarfima.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), "SARFIMA+GARCH")
+  sarfima.garch.forecast.res = arima.forecast(example.ts, length(test.ts$series), sarfima.garch.name)
   sarfima.garch.end.time <- Sys.time()
   sarfima.garch.duration <- difftime(sarfima.garch.end.time, sarfima.garch.start.time, units = "secs")
   sarfima.garch.lb.95 <- sarfima.garch.forecast.res$lower
   sarfima.garch.ub.95 <- sarfima.garch.forecast.res$upper
   sarfima.garch.point <- sarfima.garch.forecast.res$mean
   sarfima.garch.score <- interval.score(sarfima.garch.lb.95, sarfima.garch.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, sarfima.garch.name, sarfima.garch.score, sarfima.garch.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), sarfima.garch.lb.95)
     ub.95.ext <- c(rep(0, train.length), sarfima.garch.ub.95)
@@ -174,8 +262,8 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "SARFIMA.GARCH")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, sarfima.garch.name)
   }
   
   lm.start.time <- Sys.time()
@@ -186,6 +274,11 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   lm.ub.95 <- lm.forecast.res$upper
   lm.point <- lm.forecast.res$mean
   lm.score <- interval.score(lm.lb.95, lm.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, lm.name, lm.score, lm.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), lm.lb.95)
     ub.95.ext <- c(rep(0, train.length), lm.ub.95)
@@ -194,8 +287,8 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "LM")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, lm.name)
   }
   
   ssa.start.time <- Sys.time()
@@ -206,6 +299,11 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   ssa.ub.95 <- ssa.forecast.res$upper[,2]
   ssa.point <- ssa.forecast.res$mean
   ssa.score <- interval.score(ssa.lb.95, ssa.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, ssa.name, ssa.score, ssa.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), ssa.lb.95)
     ub.95.ext <- c(rep(0, train.length), ssa.ub.95)
@@ -214,8 +312,8 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "SSA")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, ssa.name)
   }
   
   svr.start.time <- Sys.time()
@@ -226,6 +324,11 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
   svr.ub.95 <- svr.forecast.res$upper[,2]
   svr.point <- svr.forecast.res$mean
   svr.score <- interval.score(svr.lb.95, svr.ub.95, actual.vals, alpha)
+  if(!is.null(mongo.con)) {
+    update.adr <- create.JSON.sequence.for.update.adr(db.name)
+    update.str <- create.JSON.sequence.for.update.content(db.name, svr.name, svr.score, svr.duration)
+    mongo.con$update(update.adr, update.str)
+  }
   if(!is.null(influx.con)) {
     lb.95.ext <- c(rep(0, train.length), svr.lb.95)
     ub.95.ext <- c(rep(0, train.length), svr.ub.95)
@@ -234,8 +337,8 @@ testing.of.single.timeseries <- function(time.series, start.time, prediction.ste
                      ub = ub.95.ext,
                      pf = point.ext,
                      av = actual.vals.ext)
-    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin="1970-01-01"))
-    influx_write(xts.obj, influx.con, db.name, "SVR")
+    xts.obj <- xts(df, as.POSIXct(timeline.ext, origin=origin.time))
+    influx_write(xts.obj, influx.con, db.name, svr.name)
   }
 
   scores <- data.frame(ets.score = ets.score,
@@ -303,7 +406,8 @@ overall.testing <- function(list.of.data,
                             start.time,
                             prediction.steps.num = -1,
                             influx.con = NULL,
-                            db.name = "") {
+                            db.name = "",
+                            mongo.con = NULL) {
   
   scores.and.models <- parLapply(cluster,
                                  list.of.data,
@@ -311,7 +415,8 @@ overall.testing <- function(list.of.data,
                                  start.time,
                                  prediction.steps.num,
                                  influx.con,
-                                 db.name)
+                                 db.name,
+                                 mongo.con)
   
   scores <- lapply(scores.and.models, extract.scores)
   score.table <- as.data.frame(do.call(rbind, scores))

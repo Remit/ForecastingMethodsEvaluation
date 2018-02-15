@@ -1,8 +1,8 @@
 #!/usr/bin/env Rscript
 # Execution format for the command line
-# - Single File Mode: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=SINGLE --client=client1 [--predsteps=20] --dbhost=localhost:8086 --dbuser=admin --dbpassword=admin
+# - Single File Mode: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=SINGLE --client=client1 [--predsteps=20] --influx.dbhost=localhost:8086 --influx.dbuser=admin --influx.dbpassword=admin --mongo.dbhost=localhost --mongo.dbuser=admin --mongo.dbpassword=admin
 # - Batch Mode [with parallelization]: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=BATCH
-# Real example: Rscript ForecastingService.R --target=/home/remit/dissCloud/Instana/data/metrics.csv --type=SINGLE --client=client1 --predsteps=10
+
 cmd.args <- commandArgs()
 script.file.prefix <- "--file="
 full.script.path <- cmd.args[which(grepl(script.file.prefix, cmd.args))]
@@ -65,9 +65,10 @@ if(length(target) == 0) {
                                                   nchar(starttime))), origin="1970-01-01")
           }
           
-          # Creating connection to InfluxDB for time series in case of SINGLE type of processing
+          # Creating connections to databases
           influx.con <- NULL
-          db.name <- ""
+          mongo.con <- NULL
+          influx.db.name <- ""
           if(processing.type == "SINGLE") {
             client.prefix <- "--client="
             
@@ -78,52 +79,99 @@ if(length(target) == 0) {
               client <- substring(client,
                                   nchar(client.prefix) + 1,
                                   nchar(client))
-              # Used by service to process and store the results in InfluxDB
-              dbhost.prefix <- "--dbhost="
               
-              dbhost <- cmd.args[which(grepl(dbhost.prefix, cmd.args))]
-              if(length(dbhost) == 0) {
-                print("No 'dbhost' command line parameter found. Please, specify the '--dbhost' parameter with an appropriate value.")
+              # Creating connection to InfluxDB for time series in case of SINGLE type of processing
+              # Used by service to process and store the results in InfluxDB
+              influx.dbhost.prefix <- "--influx.dbhost="
+              
+              influx.dbhost <- cmd.args[which(grepl(influx.dbhost.prefix, cmd.args))]
+              if(length(influx.dbhost) == 0) {
+                print("No 'influx.dbhost' command line parameter found. Please, specify the '--influx.dbhost' parameter with an appropriate value.")
               } else {
-                dbhost <- substring(dbhost,
-                                    nchar(dbhost.prefix) + 1,
-                                    nchar(dbhost))
-                dbhost.parts <- strsplit(dbhost, split=':', fixed=TRUE)[[1]]
-                if(length(dbhost.parts) != 2) {
-                  print("'dbhost' command line parameter is incorrect. The format should be: <IP ADDRESS>:<PORT>.")
+                influx.dbhost <- substring(influx.dbhost,
+                                    nchar(influx.dbhost.prefix) + 1,
+                                    nchar(influx.dbhost))
+                influx.dbhost.parts <- strsplit(influx.dbhost, split=':', fixed=TRUE)[[1]]
+                if(length(influx.dbhost.parts) != 2) {
+                  print("'influx.dbhost' command line parameter is incorrect. The format should be: <IP ADDRESS>:<PORT>.")
                 } else {
-                  host <- dbhost.parts[1]
-                  port <- as.numeric(dbhost.parts[2])
+                  influx.host <- influx.dbhost.parts[1]
+                  influx.port <- as.numeric(influx.dbhost.parts[2])
                   
                   # Getting user and password
-                  dbuser.prefix <- "--dbuser="
-                  dbpassword.prefix <- "--dbpassword="
+                  influx.dbuser.prefix <- "--influx.dbuser="
+                  influx.dbpassword.prefix <- "--influx.dbpassword="
                   
-                  dbuser <- cmd.args[which(grepl(dbuser.prefix, cmd.args))]
-                  dbpassword <- cmd.args[which(grepl(dbpassword.prefix, cmd.args))]
+                  influx.dbuser <- cmd.args[which(grepl(influx.dbuser.prefix, cmd.args))]
+                  influx.dbpassword <- cmd.args[which(grepl(influx.dbpassword.prefix, cmd.args))]
                   
-                  user <- "root"
-                  password <- "root"
-                  if((length(dbuser) != 0) && (length(dbpassword) != 0)) {
-                    user <- substring(dbuser,
-                                      nchar(dbuser.prefix) + 1,
-                                      nchar(dbuser))
-                    password <- substring(dbpassword,
-                                          nchar(dbpassword.prefix) + 1,
-                                          nchar(dbpassword))
+                  influx.user <- "root"
+                  influx.password <- "root"
+                  if((length(influx.dbuser) != 0) && (length(influx.dbpassword) != 0)) {
+                    influx.user <- substring(influx.dbuser,
+                                      nchar(influx.dbuser.prefix) + 1,
+                                      nchar(influx.dbuser))
+                    influx.password <- substring(influx.dbpassword,
+                                          nchar(influx.dbpassword.prefix) + 1,
+                                          nchar(influx.dbpassword))
                   }
                   
                   library(influxdbr)
                   influx.con <- influx_connection(scheme = "http",
-                                                  host = host,
-                                                  port = port,
-                                                  user = user,
-                                                  pass = password)
-                  db.name <- client
+                                                  host = influx.host,
+                                                  port = influx.port,
+                                                  user = influx.user,
+                                                  pass = influx.password)
+                  influx.db.name <- client
                   if(!grepl(client, show_databases(influx.con))) {
-                    create_database(influx.con, db.name)
+                    create_database(influx.con, influx.db.name)
                   }
                 }
+              }
+            
+              # Creating connection to MongoDB for score and duration data in case of SINGLE type of processing
+              
+              mongo.db.name <- "forecasting.methods.performance.data"
+              collection.name <- "metrics"
+              mongo.dbhost.prefix <- "--mongo.dbhost="
+              
+              mongo.dbhost <- cmd.args[which(grepl(mongo.dbhost.prefix, cmd.args))]
+              if(length(mongo.dbhost) == 0) {
+                print("No 'mongo.dbhost' command line parameter found. Please, specify the '--mongo.dbhost' parameter with an appropriate value.")
+              } else {
+                mongo.dbhost <- substring(mongo.dbhost,
+                                           nchar(mongo.dbhost.prefix) + 1,
+                                           nchar(mongo.dbhost))
+                  
+                # Getting user and password
+                mongo.dbuser.prefix <- "--mongo.dbuser="
+                mongo.dbpassword.prefix <- "--mongo.dbpassword="
+                
+                mongo.dbuser <- cmd.args[which(grepl(mongo.dbuser.prefix, cmd.args))]
+                mongo.dbpassword <- cmd.args[which(grepl(mongo.dbpassword.prefix, cmd.args))]
+                
+                mongo.user <- "root"
+                mongo.password <- "root"
+                if((length(mongo.dbuser) != 0) && (length(mongo.dbpassword) != 0)) {
+                  mongo.user <- substring(mongo.dbuser,
+                                           nchar(mongo.dbuser.prefix) + 1,
+                                           nchar(mongo.dbuser))
+                  mongo.password <- substring(mongo.dbpassword,
+                                               nchar(mongo.dbpassword.prefix) + 1,
+                                               nchar(mongo.dbpassword))
+                  
+                  # Special situation in case of symbol '@' and ':' usage for username and/or password
+                  mongo.user <- gsub("@", "%40", mongo.user)
+                  mongo.password <- gsub("@", "%40", mongo.password)
+                  mongo.user <- gsub(":", "%3A", mongo.user)
+                  mongo.password <- gsub(":", "%3A", mongo.password)
+                }
+                
+                mongo.url <- paste0("mongodb://", mongo.user, ":", mongo.password, "@", mongo.dbhost)
+                library(mongolite)
+                mongo.con <- mongo(collection = collection.name,
+                                   db = mongo.db.name,
+                                   url = mongo.url)
               }
             }
           }
@@ -150,6 +198,7 @@ if(length(target) == 0) {
             suppressMessages(library(forecast))
             suppressMessages(library(xts))
             suppressMessages(library(influxdbr))
+            suppressMessages(library(mongolite))
           }) 
           
           # Main Computation
@@ -158,7 +207,8 @@ if(length(target) == 0) {
                                                start.time,
                                                predsteps.num,
                                                influx.con,
-                                               db.name)#lst[1:10]
+                                               influx.db.name,
+                                               mongo.con)
           stopCluster(cl)
           
           if(processing.type == "BATCH") {
@@ -169,6 +219,3 @@ if(length(target) == 0) {
     }
   }
 }
-
-# Installation (external) - https://stackoverflow.com/questions/1474081/how-do-i-install-an-r-package-from-source 
-# https://deanattali.com/2015/05/09/setup-rstudio-shiny-server-digital-ocean/

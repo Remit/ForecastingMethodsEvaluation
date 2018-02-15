@@ -23,7 +23,8 @@ RUN \
   Rscript -e 'install.packages("reshape2", repos = "http://cran.us.r-project.org")' && \
   Rscript -e 'install.packages("Rssa", repos = "http://cran.us.r-project.org")' && \
   Rscript -e 'install.packages("e1071", repos = "http://cran.us.r-project.org")' && \
-  Rscript -e 'install.packages("influxdbr", repos = "http://cran.us.r-project.org")'
+  Rscript -e 'install.packages("influxdbr", repos = "http://cran.us.r-project.org")' && \
+  Rscript -e 'install.packages("mongolite", repos = "http://cran.us.r-project.org")'
 
 # Making necessary folders
 RUN \
@@ -48,4 +49,4 @@ CMD ["bash"]
 
 # Testing with commands in CLI:
 # [no InfluxDB - results in a .RData file in the same folder] Rscript ForecastingService.R --target=test.csv --starttime=1518524056 --type=BATCH
-# [with InfluxDB - results in a database in Influx] Rscript ForecastingService.R --target=test.csv --type=SINGLE --client=client1 --predsteps=10 --dbhost=localhost:8086 --dbuser=root --dbpassword=root
+# [with InfluxDB - results in a database in Influx] Rscript ForecastingService.R --target=test.csv --starttime=1518524056 --type=SINGLE --client=client1 --predsteps=10 --influx.dbhost=localhost:8086 --influx.dbuser=root --influx.dbpassword=root --mongo.dbhost=localhost --mongo.dbuser=admin --mongo.dbpassword=admin
