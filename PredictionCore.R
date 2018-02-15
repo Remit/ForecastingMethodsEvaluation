@@ -1,42 +1,42 @@
-# Functions to create the insertion/update JSON sequences
-create.JSON.sequence.for.method <- function(method.name, score, duration) {
-  JSON.string <- paste0('"',
-                        method.name,
-                        '" : { "score" : ',
-                        score,
-                        ', "duration" : ',
-                        duration,
-                        '}')
-  return(JSON.string)
-}
-
-create.JSON.sequence.for.insertion <- function(client, method.name, score, duration) {
-  JSON.string.method <- create.JSON.sequence.for.method(method.name, score, duration)
-  JSON.string <- paste0('{"username" : "',
-                        client,
-                        '", ',
-                        JSON.string.method,
-                        '}')
-  return(JSON.string)
-}
-
-create.JSON.sequence.for.update.adr <- function(client) {
-  JSON.string <- paste0('{"username" : "',
-                        client,
-                        '"}')
-  return(JSON.string)
-}
-
-create.JSON.sequence.for.update.content <- function(client, method.name, score, duration) {
-  JSON.string.method <- create.JSON.sequence.for.method(method.name, score, duration)
-  JSON.string <- paste0('{"$set":{',
-                        JSON.string.method,
-                        '}}')
-  return(JSON.string)
-}
-
 # Forecast model creation, forecasting and scoring for the single time series.
 testing.of.single.timeseries <- function(time.series, start.time, prediction.steps.num, influx.con, db.name, mongo.con) {
+  # Functions to create the insertion/update JSON sequences
+  create.JSON.sequence.for.method <- function(method.name, score, duration) {
+    JSON.string <- paste0('"',
+                          method.name,
+                          '" : { "score" : ',
+                          score,
+                          ', "duration" : ',
+                          duration,
+                          '}')
+    return(JSON.string)
+  }
+  
+  create.JSON.sequence.for.insertion <- function(client, method.name, score, duration) {
+    JSON.string.method <- create.JSON.sequence.for.method(method.name, score, duration)
+    JSON.string <- paste0('{"username" : "',
+                          client,
+                          '", ',
+                          JSON.string.method,
+                          '}')
+    return(JSON.string)
+  }
+  
+  create.JSON.sequence.for.update.adr <- function(client) {
+    JSON.string <- paste0('{"username" : "',
+                          client,
+                          '"}')
+    return(JSON.string)
+  }
+  
+  create.JSON.sequence.for.update.content <- function(client, method.name, score, duration) {
+    JSON.string.method <- create.JSON.sequence.for.method(method.name, score, duration)
+    JSON.string <- paste0('{"$set":{',
+                          JSON.string.method,
+                          '}}')
+    return(JSON.string)
+  }
+  
   example.ts <- list()
   example.ts$series <- time.series
   example.ts$start <- start.time

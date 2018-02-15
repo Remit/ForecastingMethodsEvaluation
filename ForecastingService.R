@@ -131,7 +131,7 @@ if(length(target) == 0) {
             
               # Creating connection to MongoDB for score and duration data in case of SINGLE type of processing
               
-              mongo.db.name <- "forecasting.methods.performance.data"
+              mongo.db.name <- "performancedata"
               collection.name <- "metrics"
               mongo.dbhost.prefix <- "--mongo.dbhost="
               
@@ -181,7 +181,10 @@ if(length(target) == 0) {
           data.raw <- read.csv2(file = target, header = F, sep = ",", stringsAsFactors = F)
           lst <- ts.preprocessing.matrix(data.raw, start.time)
           
-          no_cores <- detectCores() - 1
+          no_cores <- detectCores()
+          if(no_cores > 1) {
+            no_cores <- no_cores - 1
+          }
           cl <- makeCluster(no_cores)
           
           clusterEvalQ(cl, {
