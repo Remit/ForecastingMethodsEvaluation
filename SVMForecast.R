@@ -4,6 +4,8 @@ days.name <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday
 
 # Function to derive the forecasts using SVR model
 svr.forecast <- function(train.timeseries, pred.steps) {
+  
+  model.fitting.start <- Sys.time()
   teaching.window.width <- 1
   training.num <- length(train.timeseries$series)
   training.set.length <- training.num - teaching.window.width
@@ -111,6 +113,9 @@ svr.forecast <- function(train.timeseries, pred.steps) {
   svr.forecast$lower <- lower
   svr.forecast$upper <- upper
   svr.forecast$mean <- predictions
+  model.fitting.end <- Sys.time()
+  svr.forecast$model.fitting.duration <- difftime(model.fitting.end, model.fitting.start, units = "secs")
+  svr.forecast$parameters.selection.duration = 0
   
   return(svr.forecast)
 }

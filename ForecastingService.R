@@ -1,7 +1,8 @@
 #!/usr/bin/env Rscript
 # Execution format for the command line
 # - Single File Mode: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=SINGLE --client=client1 [--predsteps=20] --influx.dbhost=localhost:8086 --influx.dbuser=admin --influx.dbpassword=admin --mongo.dbhost=localhost --mongo.dbuser=admin --mongo.dbpassword=admin
-# - Batch Mode [with parallelization]: Rscript ForecastingService.R --target=data.csv --starttime=1518524056 --type=BATCH
+# - Batch Mode [with parallelization]: Rscript ForecastingService.R --target=data.csv --starttime=1507542083 --type=BATCH
+# Batch end time for test data: 6 November 2017, 10:41:23. Start - 1507542083 // as.numeric(as.POSIXct(strptime("2017-11-06 10:41:23", "%Y-%m-%d %H:%M:%S"))) - 4 * 7 * 24 * 60 * 60
 
 cmd.args <- commandArgs()
 script.file.prefix <- "--file="
@@ -185,7 +186,9 @@ if(length(target) == 0) {
           if(no_cores > 1) {
             no_cores <- no_cores - 1
           }
-          cl <- makeCluster(no_cores)
+          # TODO: make option of console output debug-only in params
+          cl <- makeCluster(no_cores,
+                            outfile = "")
           
           clusterEvalQ(cl, {
             source("ARIMAForecast.R")

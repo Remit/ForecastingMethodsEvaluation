@@ -3,7 +3,7 @@ require(Rssa)
 
 # Function to derive the forecasts using SSA model
 ssa.forecast <- function(train.timeseries, pred.steps) {
-  
+  model.fitting.start <- Sys.time()
   ssa.model = ssa(train.timeseries$series)
   # Heuristic to determine the groups using correlations
   wcor.matrix <- wcor(ssa.model, groups = 1:20)
@@ -59,6 +59,9 @@ ssa.forecast <- function(train.timeseries, pred.steps) {
   ssa.forecast$mean <- mean.fc
   ssa.forecast$lower <- lower
   ssa.forecast$upper <- upper
+  model.fitting.end <- Sys.time()
+  ssa.forecast$model.fitting.duration <- difftime(model.fitting.end, model.fitting.start, units = "secs")
+  ssa.forecast$parameters.selection.duration = 0
   
   return(ssa.forecast)
 }

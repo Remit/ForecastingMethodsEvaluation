@@ -3,7 +3,8 @@ suppressMessages(require(imputeTS))
 
 # A function to preprocess a timeseries row in order to introduce NAs instead of negative values
 ts.preprocessing <- function(row, start.time) {
-  num.row = as.numeric(row)
+  row.id <- as.numeric(row[1])
+  num.row <- as.numeric(row[-1])
   num.row.NA = replace(num.row, num.row == -1, NA)
   if(length(num.row) - sum(is.na(num.row.NA)) >= 2) {
     num.row.interpolated = na.interpolation(num.row.NA)
@@ -20,20 +21,33 @@ ts.preprocessing <- function(row, start.time) {
     row.ts <- NULL
   }
   
-  return(list(row.ts))
+  res <- list(row.ts)
+  names(res) <- row.id
+  return(res)
 }
 
 # A function to preprocess the whole matrix of the data
 ts.preprocessing.matrix <- function(data.raw, start.time) {
-  lst = apply(data.raw, 1, ts.preprocessing, start.time)
+  data.raw.modified <- cbind(row.names(data.raw), data.raw)
+  lst = apply(data.raw.modified, 1, ts.preprocessing, start.time)
   i <- 1
   lst.filtered <- list()
+  ids <- c()
   while(i <= length(lst)) {
     if(!is.null(lst[[i]][[1]])) {
       lst.filtered <- c(lst.filtered, lst[[i]])
+      ids <- c(ids, i)
     }
     i <- i + 1
   }
+  
+  # Giving original IDs to each element of time series list
+  j <- 1
+  while(j <= length(lst.filtered)) {
+    names(lst.filtered[[j]]) <- ids[j]
+    j <- j + 1
+  }
+
   return(lst.filtered)
 }
 
